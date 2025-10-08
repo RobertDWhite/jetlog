@@ -295,8 +295,7 @@ export default function New() {
                 {!currentUser?.isAdmin && currentUser && (
                     <div className="px-4 pb-2">
                         <div className="container">
-                        <Label text="Traveler Details" />
-                        <TravelerFields username={currentUser.username} />
+                            <TravelerFields username={currentUser.username} />
                         </div>
                     </div>
                 )}

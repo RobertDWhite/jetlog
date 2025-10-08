@@ -5,6 +5,19 @@ import API from '../api';
 import ConfigStorage from '../storage/configStorage';
 import { Coord, Trajectory } from '../models';
 
+interface BoundsInterface {
+    south: number;
+    north: number;
+    west: number;
+    east: number;
+}
+const defaultBounds: BoundsInterface = {
+    south: -90,
+    north: 90,
+    west: -180,
+    east: 180
+}
+
 interface MapGeographiesProps {
     lines: Trajectory[];
     markers: Coord[];
@@ -83,13 +96,45 @@ function MapFeatures({ lines, markers, zoom }: MapGeographiesProps) {
 export default function WorldMap() {
     const [lines, setLines] = useState<Trajectory[]>([]);
     const [markers, setMarkers] = useState<Coord[]>([]);
+    const [initialZoom, setInitialZoom] = useState<number>(1);
     const [zoom, setZoom] = useState<number>(1);
+    const [center, setCenter] = useState<[number, number]>([0, 0])
 
     useEffect(() => {
         API.get("/geography/decorations")
         .then((data: [Trajectory[], Coord[]]) => {
             setLines(data[0]);
             setMarkers(data[1]);
+
+            if (data[1] && data[1].length > 1 && ConfigStorage.getSetting("restrictWorldMap") === "true") {
+                // find bounding box defined by visited airports
+                // i.e. get southernmost, eastmost, northmost, westmost
+                // visited airports
+                const latitudes = data[1].map(coord => coord.latitude);
+                const longitudes = data[1].map(coord => coord.longitude);
+
+                const south = Math.min(...latitudes);
+                const north = Math.max(...latitudes);
+                const west = Math.min(...longitudes);
+                const east = Math.max(...longitudes);
+
+                // compute center
+                const centerLon = (west + east) / 2;
+                const centerLat = (south + north) / 2;
+                setCenter([centerLon, centerLat]);
+
+                // compute zoom
+                const lonSpan = east - west;
+                const latSpan = north - south;
+                const maxSpan = Math.max(lonSpan, latSpan);
+                const computedZoom = Math.min(150 / maxSpan, 3);
+                setInitialZoom(computedZoom);
+
+                if (computedZoom < 1) {
+                   setInitialZoom(1);
+                   setCenter([0, 0]);
+                }
+            }
         });
     }, []);
 
@@ -98,6 +143,8 @@ export default function WorldMap() {
             <ComposableMap width={1000} height={470}>
                 <ZoomableGroup maxZoom={10}
                                translateExtent={[[0, 0], [1000, 470]]}
+                               zoom={initialZoom}
+                               center={center}
                                onMove={({zoom: newZoom}) => {
                                    if (newZoom != zoom) setZoom(newZoom)
                                }}>

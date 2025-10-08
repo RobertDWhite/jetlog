@@ -5,12 +5,14 @@ export interface ConfigInterface {
     showVisitedCountries: string;
     metricUnits: string;
     localAirportTime: string;
+    restrictWorldMap: string;
 }
 const ConfigKeys = ["frequencyBasedMarker",
                     "frequencyBasedLine",
                     "showVisitedCountries",
                     "metricUnits",
-                    "localAirportTime"];
+                    "localAirportTime",
+                    "restrictWorldMap"];
 type Config = typeof ConfigKeys[number];
 
 const defaultConfig: ConfigInterface = {
@@ -18,7 +20,8 @@ const defaultConfig: ConfigInterface = {
     frequencyBasedLine: "false",
     showVisitedCountries: "false",
     metricUnits: "true",
-    localAirportTime: "true"
+    localAirportTime: "true",
+    restrictWorldMap: "false",
 }
 
 class ConfigStorageClass {

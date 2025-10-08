@@ -246,6 +246,14 @@ export default function Settings() {
                                 onChange={changeOption} />
                 </div>
 
+                <div className="flex justify-between">
+                    <Label text="Restrict world map to visited areas" />
+                    <Checkbox name="restrictWorldMap"
+                                checked={options.restrictWorldMap === "true"}
+                                onChange={changeOption} />
+
+                </div>
+
                 <hr />
 
                 <Subheading text="Utilities" />

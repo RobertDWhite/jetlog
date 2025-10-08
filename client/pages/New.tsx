@@ -143,7 +143,7 @@ export default function New() {
 
         if (payload.length == 1) {
             API.post(`/flights?timezones=${localAirportTime}`, payload[0])
-            .then(flightID => navigate(`/flights?id=${flightID})`));
+            .then(flightID => navigate(`/flights?id=${flightID}`));
         } else {
             API.post(`/flights/many?timezones=${localAirportTime}`, payload)
             .then(creatorFlightID => navigate(`/flights?id=${creatorFlightID}`));

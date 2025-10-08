@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { Heading, Label, Button, Input, Select, TextArea } from '../components/Elements';
 import SearchInput from '../components/SearchInput'
-import API from '../api';
+import API, { ENABLE_EXTERNAL_APIS } from '../api';
 import { objectFromForm } from '../utils';
 import { Airline, Airport, User } from '../models';
 import ConfigStorage from '../storage/configStorage';
@@ -151,6 +151,10 @@ export default function New() {
     };
 
     const attemptFetchFlight = async () => {
+        if (!ENABLE_EXTERNAL_APIS) {
+            return;
+        }
+
         API.getRemote(`https://api.adsbdb.com/v0/callsign/${flightNumber}`)
         .then(async (data: Object) => {
             const originICAO = data["response"]["flightroute"]["origin"]["icao_code"];
@@ -246,9 +250,11 @@ export default function New() {
                                     onChange={(e) => setFlightNumber(e.target.value)}
                                 />
                             </div>
-                            <div className="h-10 flex items-center">
-                                <Button text="Fetch" onClick={attemptFetchFlight} disabled={!flightNumber} />
-                            </div>
+                            { ENABLE_EXTERNAL_APIS && 
+                                <div className="h-10 flex items-center">
+                                    <Button text="Fetch" onClick={attemptFetchFlight} disabled={!flightNumber} />
+                                </div>
+                            }
                         </div>
                         <div>
                             <Label text="Connection" />

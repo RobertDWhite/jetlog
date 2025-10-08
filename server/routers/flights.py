@@ -1,4 +1,5 @@
 from server.database import database
+from server.environment import ENABLE_EXTERNAL_APIS
 from server.models import AirlineModel, AirportModel, ClassType, CustomModel, FlightModel, AircraftSide, FlightPurpose, SeatType, User
 from server.auth.users import get_current_user
 
@@ -363,6 +364,8 @@ async def compute_connections(user: User = Depends(get_current_user)) -> dict:
 
 @router.post("/airlines_from_callsigns", status_code=200)
 async def fetch_airlines_from_callsigns(user: User = Depends(get_current_user)) -> dict:
+    if not ENABLE_EXTERNAL_APIS:
+        raise HTTPException(status_code=400, detail="This endpoint relies on the use of an external API, which you have opted out of.")
     import requests
 
     res = database.execute_read_query("""SELECT flight_number, COUNT(*)

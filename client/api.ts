@@ -2,9 +2,10 @@ import axios, {Axios} from 'axios';
 import TokenStorage from './storage/tokenStorage';
 
 const config = await fetch('./config').then((response) => response.json())
-                                      .catch(() => ({ BASE_URL: '/' }));
+                                      .catch(() => ({ BASE_URL: '/', ENABLE_EXTERNAL_APIS: true }));
 
 export const BASE_URL = config.BASE_URL == '/' ? '' : config.BASE_URL;
+export const ENABLE_EXTERNAL_APIS = config.ENABLE_EXTERNAL_APIS;
 
 // TODO improve this because there's a lot of repetition (get, post, delete are pretty much exactly the same)
 // perhaps one method for each endpoint? i.e. API.getFlights(), ...

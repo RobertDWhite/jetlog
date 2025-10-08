@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import API from '../api';
+import API, { ENABLE_EXTERNAL_APIS } from '../api';
 import { Heading, Label, Input, Checkbox, Subheading, Button, Dialog, Select } from '../components/Elements'
 import ConfigStorage, { ConfigInterface } from '../storage/configStorage';
 import { User } from '../models';
@@ -255,10 +255,12 @@ export default function Settings() {
                     <Button text="Run" disabled={disableJobs} onClick={computeConnections} />
                 </div>
 
-                <div className="flex justify-between">
-                    <Label text="Fetch missing airlines" />
-                    <Button text="Run" disabled={disableJobs} onClick={fetchAirlinesFromCallsigns} />
-                </div>
+                { ENABLE_EXTERNAL_APIS && 
+                    <div className="flex justify-between">
+                        <Label text="Fetch missing airlines" />
+                        <Button text="Run" disabled={disableJobs} onClick={fetchAirlinesFromCallsigns} />
+                    </div>
+                }
             </div>
 
 

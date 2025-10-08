@@ -15,6 +15,7 @@ A self-hostable personal flight tracker and viewer
 - [Features](#features)
 - [Getting Started](#getting-started)
 - [Importing & Exporting](#importing--exporting)
+- [Privacy Notice](#privacy-notice)
 - [Contributing](#contributing)
 - [Stack](#stack)
 - [Acknowledgements](#acknowledgements)
@@ -60,6 +61,14 @@ You can currently import from MyFlightRadar24, custom CSV;
 you can also export to CSV, iCal
 
 For details on how to import your data, have a look at the [importing wiki](https://github.com/pbogre/jetlog/wiki/Importing)
+
+## Privacy Notice
+
+Jetlog itself does not collect any user data outside of your own setup. However,
+it relies on external APIs ([adsbdb](https://www.adsbdb.com/)) for some features
+such as automatic flight fetching from the flight number. Since you cannot always
+be sure of how external APIs use your data, you may wish to opt out of these by setting
+the `ENABLE_EXTERNAL_APIS` environment variable to `false`.
 
 ## Contributing
 

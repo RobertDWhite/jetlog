@@ -1,7 +1,7 @@
 import os
 import sys
 
-def _get_environment_variable(key: str, cast_int: bool = False, required: bool = True) -> str|int|None:
+def _get_environment_variable(key: str, cast_int: bool = False, cast_str: bool = False, required: bool = True) -> str|int|None:
     value = os.environ.get(key)
 
     if not value:
@@ -23,3 +23,4 @@ DATA_PATH = _get_environment_variable("DATA_PATH")
 SECRET_KEY = _get_environment_variable("SECRET_KEY")
 AUTH_HEADER = _get_environment_variable("AUTH_HEADER", required=False)
 TOKEN_DURATION = _get_environment_variable("TOKEN_DURATION", cast_int=True)
+ENABLE_EXTERNAL_APIS = str(_get_environment_variable("ENABLE_EXTERNAL_APIS")).lower() == "true"

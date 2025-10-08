@@ -1,5 +1,6 @@
 from server.routers import flights, airports, airlines, statistics, geography, importing, exporting
 from server.auth import users, auth
+from server.environment import ENABLE_EXTERNAL_APIS
 from fastapi import FastAPI, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -34,7 +35,11 @@ app.include_router(auth.router, prefix="/api")
 
 @app.get("/config")
 async def get_config(request: Request):
-    return JSONResponse({"BASE_URL": request.scope.get("root_path", "/")})
+    config = {
+            "BASE_URL": request.scope.get("root_path", "/"),
+            "ENABLE_EXTERNAL_APIS": ENABLE_EXTERNAL_APIS
+    }
+    return JSONResponse(config)
 
 @app.get("/", include_in_schema=False)
 @app.get("/new", include_in_schema=False)

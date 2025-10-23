@@ -121,7 +121,9 @@ export default function New() {
         }
 
         // Build payload from form data
-        const sharedFields = ["airline", "origin", "destination", "date", "flightNumber"];
+        const sharedFields = ["airline", "origin", "destination", "date", 
+            "flightNumber", "departureTime", "arrivalTime", "arrivalDate",
+            "airplane", "tailNumber"];
         let payload = selectedUsernames.map(selectedUsername => {
             var userFlight = { username: selectedUsername };
 

@@ -34,7 +34,7 @@ async def get_statistics(metric: bool = True,
     res = database.execute_read_query(f"""
         WITH visited_airports AS (
             SELECT destination AS icao
-            FROM flights
+            FROM flights AS f
             {filters}
             AND connection IS NULL
 

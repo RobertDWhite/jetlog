@@ -31,8 +31,8 @@ async def check_flight_authorization(id: int, user: User) -> None:
     res = database.execute_read_query(f"SELECT username FROM flights WHERE id = ?;", [id])
     flight_username = res[0][0]
 
-    if flight_username != user.username:
-        raise HTTPException(status_code=403, detail="You are not authorized to modify this flight")
+    if flight_username != user.username and not user.is_admin:
+        raise HTTPException(status_code=403, detail="Only admins can modify other users' flights")
 
 # https://en.wikipedia.org/wiki/Haversine_formula
 async def spherical_distance(origin: AirportModel|str, destination: AirportModel|str) -> int:
@@ -94,9 +94,8 @@ def duration(departure: datetime.datetime, arrival: datetime.datetime) -> int:
 async def add_many_flights(flights: list[FlightModel], timezones: bool = True, user: User = Depends(get_current_user)) -> int:
     creator_flight_id = -1
     for flight in flights:
-        if flight.username != user.username:
-            if not user.is_admin:
-                raise HTTPException(status_code=403, detail="Only admins can add flights for other users")
+        if flight.username != user.username and not user.is_admin:
+            raise HTTPException(status_code=403, detail="Only admins can add flights for other users")
 
         flight_id = await add_flight(flight, timezones, user)
         if flight.username == user.username:
@@ -106,6 +105,10 @@ async def add_many_flights(flights: list[FlightModel], timezones: bool = True, u
 
 @router.post("", status_code=201)
 async def add_flight(flight: FlightModel, timezones: bool = True, user: User = Depends(get_current_user)) -> int:
+    # only admins may add flights for other users
+    if flight.username != user.username and not user.is_admin:
+        raise HTTPException(status_code=403, detail="Only admins can add flights for other users")
+
     if not (flight.date and flight.origin and flight.destination):
         raise HTTPException(status_code=404,
                             detail="Insufficient flight data. Date, Origin, and Destination are required")
@@ -137,9 +140,6 @@ async def add_flight(flight: FlightModel, timezones: bool = True, user: User = D
     query = query[:-1]
     query += ") RETURNING id;"
 
-    # only admins may add flights for other users
-    if flight.username and not user.is_admin:
-        raise HTTPException(status_code=403, detail="Only admins can add flights for other users")
 
     explicit = {"username": user.username} if not flight.username else {}
     values = flight.get_values(ignore=["id"], explicit=explicit)

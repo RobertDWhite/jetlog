@@ -1,5 +1,6 @@
 import axios, {Axios} from 'axios';
 import TokenStorage from './storage/tokenStorage';
+import { showToast } from './components/Toast';
 
 const config = await fetch('./config').then((response) => response.json())
                                       .catch(() => ({ BASE_URL: '/', ENABLE_EXTERNAL_APIS: true }));
@@ -44,14 +45,14 @@ class APIClass {
                 }
             }
             else {
-                alert("Bad response: " + JSON.stringify(err.response.data));
+                const errorData = err.response.data; const message = typeof errorData === 'object' && errorData.detail ? errorData.detail : JSON.stringify(errorData); showToast('Error: ' + message, 'error');
             }
         }
         else if (err.request) {
-            alert("Bad request: " + JSON.stringify(err.request));
+            showToast('Network error: Unable to reach server', 'error');
         }
         else {
-            alert("Unknown error: " + JSON.stringify(err));
+            showToast('Unknown error: ' + err.message, 'error');
         }
     }
 

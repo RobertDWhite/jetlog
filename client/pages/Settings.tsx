@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 import API, { ENABLE_EXTERNAL_APIS } from '../api';
 import { Heading, Label, Input, Checkbox, Subheading, Button, Dialog, Select } from '../components/Elements'
+import { useToast } from '../components/Toast';
 import ConfigStorage, { ConfigInterface } from '../storage/configStorage';
 import { User } from '../models';
 import TokenStorage from '../storage/tokenStorage';
@@ -94,6 +95,7 @@ export default function Settings() {
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [disableJobs, setDisableJobs] = useState(false);
     const navigate = useNavigate();
+    const { showToast } = useToast();
 
     useEffect(() => {
         API.get("/users/me")
@@ -162,7 +164,7 @@ export default function Settings() {
 
         API.post("/flights/connections", {})
         .then((data: object) => {
-            alert(`Flights skipped: ${data["amountSkipped"]}\nFlights updated: ${data["amountUpdated"]}`);
+            showToast(`Connections computed: ${data["amountUpdated"]} updated, ${data["amountSkipped"]} skipped`, 'success');
             setDisableJobs(false);
         });
     }
@@ -172,7 +174,7 @@ export default function Settings() {
 
         API.post("/flights/airlines_from_callsigns", {})
         .then((data: object) => {
-            alert(`Flights skipped: ${data["amountSkipped"]}\nFlights updated: ${data["amountUpdated"]}`);
+            showToast(`Connections computed: ${data["amountUpdated"]} updated, ${data["amountSkipped"]} skipped`, 'success');
             setDisableJobs(false);
         })
     }

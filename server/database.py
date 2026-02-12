@@ -63,6 +63,9 @@ class Database():
             # update airports and airlines tables
             self.update_tables()
 
+            # ensure fr24 sync tracking table exists
+            self.ensure_fr24_table()
+
             # verify that all tables are up-to-date
             # (backward compatibility)
             for table in self.tables:
@@ -118,6 +121,7 @@ class Database():
 
         self.create_first_user()
         self.update_tables(drop_old=False)
+        self.ensure_fr24_table()
 
     def create_first_user(self):
         from server.auth.utils import hash_password
@@ -129,6 +133,13 @@ class Database():
         default_password = hash_password("admin")
         self.execute_query("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 1);",
                            [default_username, default_password])
+
+    def ensure_fr24_table(self):
+        self.execute_query("""
+        CREATE TABLE IF NOT EXISTS fr24_synced_flights (
+            flight_id  INTEGER PRIMARY KEY REFERENCES flights(id) ON DELETE CASCADE,
+            synced_at  DATETIME DEFAULT current_timestamp
+        );""")
 
     def update_tables(self, drop_old: bool = True):
         print("Updating airports and airlines tables...")

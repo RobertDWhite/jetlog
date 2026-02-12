@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import API, { ENABLE_EXTERNAL_APIS } from '../api';
+import API, { ENABLE_EXTERNAL_APIS, FR24_CONFIGURED } from '../api';
 import { Heading, Label, Input, Checkbox, Subheading, Button, Dialog, Select } from '../components/Elements'
 import ConfigStorage, { ConfigInterface } from '../storage/configStorage';
 import { User } from '../models';
@@ -134,11 +134,31 @@ export default function Settings() {
         }
     }
 
+    const [syncingFR24, setSyncingFR24] = useState(false);
+
+    const syncToFR24 = async () => {
+        setSyncingFR24(true);
+        try {
+            const data = await API.post("/fr24/sync", {});
+            let msg = `Synced: ${data.synced}\nFailed: ${data.failed}`;
+            if (data.errors && data.errors.length > 0) {
+                msg += "\n\nErrors:\n" + data.errors.join("\n");
+            }
+            alert(msg);
+        } catch {
+            // error already handled by API class
+        } finally {
+            setSyncingFR24(false);
+        }
+    }
+
     const handleExportClick = (exportType: string) => {
         if(exportType === "csv") {
             API.post("/exporting/csv", {}, true);
         } else if(exportType === "ical") {
             API.post("/exporting/ical", {}, true);
+        } else if(exportType === "myflightradar24") {
+            API.post("/exporting/myflightradar24", {}, true);
         }
     }
 
@@ -206,6 +226,14 @@ export default function Settings() {
                 <Button text="Export to CSV" onClick={() => handleExportClick("csv")}/>
                 <br />
                 <Button text="Export to iCal" onClick={() => handleExportClick("ical")}/>
+                <br />
+                <Button text="Export for MyFlightRadar24" onClick={() => handleExportClick("myflightradar24")}/>
+                { FR24_CONFIGURED &&
+                    <>
+                        <br />
+                        <Button text="Sync to MyFlightRadar24" disabled={syncingFR24} onClick={syncToFR24}/>
+                    </>
+                }
             </div>
 
             <div className="container">

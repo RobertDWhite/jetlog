@@ -26,3 +26,4 @@ TOKEN_DURATION = _get_environment_variable("TOKEN_DURATION", cast_int=True)
 ENABLE_EXTERNAL_APIS = str(_get_environment_variable("ENABLE_EXTERNAL_APIS")).lower() == "true"
 FR24_EMAIL = _get_environment_variable("FR24_EMAIL", required=False)
 FR24_PASSWORD = _get_environment_variable("FR24_PASSWORD", required=False)
+FLIGHTERA_API_KEY = _get_environment_variable("FLIGHTERA_API_KEY", required=False)

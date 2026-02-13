@@ -1,13 +1,23 @@
+import json
+import datetime
+import math
+import os
+import sqlite3
+
+import pytz
+
 from server.database import database
-from server.environment import ENABLE_EXTERNAL_APIS
+from server.environment import ENABLE_EXTERNAL_APIS, DATA_PATH, FLIGHTERA_API_KEY
 from server.models import AirlineModel, AirportModel, ClassType, CustomModel, FlightModel, AircraftSide, FlightPurpose, SeatType, User
 from server.auth.users import get_current_user
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from enum import Enum
-import datetime
-import pytz
-import math
+
+
+def _sse_event(data: dict) -> str:
+    return f"data: {json.dumps(data)}\n\n"
 
 router = APIRouter(
     prefix="/flights",
@@ -321,78 +331,313 @@ async def get_flights(id: int|None = None,
     return [ FlightModel.model_validate(flight) for flight in flights ]
 
 @router.post("/connections", status_code=200)
-async def compute_connections(user: User = Depends(get_current_user)) -> dict:
-    query = """
-        WITH plausible AS (
-            SELECT f.id  AS flight_id, c.id AS conn_id
-            FROM flights AS f
-            JOIN flights AS c ON
-                c.origin = f.destination
-                AND c.destination != f.origin
-                AND JULIANDAY(c.date) BETWEEN JULIANDAY(f.date) - 1 AND JULIANDAY(f.date) + 2
-                AND c.username = ?
-            WHERE f.username = ? AND f.connection IS NULL
-        ),
-        one_conn AS (
-            SELECT flight_id, MAX(conn_id) AS conn_id
-            FROM plausible
-            GROUP BY flight_id
-            HAVING COUNT(*) = 1
-        ),
-        multi_conn AS (
-            SELECT flight_id FROM plausible
-            GROUP BY flight_id
-            HAVING COUNT(*) > 1
-        )
+async def compute_connections(user: User = Depends(get_current_user)):
+    username = user.username
 
-        UPDATE flights SET connection = (
-            SELECT conn_id
-            FROM one_conn
-            WHERE one_conn.flight_id = flights.id
-        )
-        WHERE id IN (SELECT flight_id FROM one_conn)
-        RETURNING
-            ( SELECT COUNT(*) FROM multi_conn ) AS amount_skipped,
-            ( SELECT COUNT(*) FROM one_conn ) AS amount_updated;"""
+    def generate():
+        yield _sse_event({"type": "start", "total": 1})
 
-    res = database.execute_query(query, [user.username]*2)
+        db_path = os.path.join(DATA_PATH, "jetlog.db")
+        conn = sqlite3.connect(db_path)
 
-    if not res:
-        res = (0, 0)
+        try:
+            cur = conn.execute("""
+                WITH plausible AS (
+                    SELECT f.id  AS flight_id, c.id AS conn_id
+                    FROM flights AS f
+                    JOIN flights AS c ON
+                        c.origin = f.destination
+                        AND c.destination != f.origin
+                        AND JULIANDAY(c.date) BETWEEN JULIANDAY(f.date) - 1 AND JULIANDAY(f.date) + 2
+                        AND c.username = ?
+                    WHERE f.username = ? AND f.connection IS NULL
+                ),
+                one_conn AS (
+                    SELECT flight_id, MAX(conn_id) AS conn_id
+                    FROM plausible
+                    GROUP BY flight_id
+                    HAVING COUNT(*) = 1
+                ),
+                multi_conn AS (
+                    SELECT flight_id FROM plausible
+                    GROUP BY flight_id
+                    HAVING COUNT(*) > 1
+                )
 
-    return { "amountSkipped": res[0], "amountUpdated": res[1] }
+                UPDATE flights SET connection = (
+                    SELECT conn_id
+                    FROM one_conn
+                    WHERE one_conn.flight_id = flights.id
+                )
+                WHERE id IN (SELECT flight_id FROM one_conn)
+                RETURNING
+                    ( SELECT COUNT(*) FROM multi_conn ) AS amount_skipped,
+                    ( SELECT COUNT(*) FROM one_conn ) AS amount_updated;""",
+                [username, username])
+            res = cur.fetchone()
+            conn.commit()
+
+            if not res:
+                res = (0, 0)
+
+            updated, skipped = res[1], res[0]
+            yield _sse_event({"type": "progress", "current": 1, "total": 1,
+                              "item": f"{updated} connections found, {skipped} ambiguous",
+                              "status": "ok"})
+            yield _sse_event({"type": "done", "updated": updated, "skipped": skipped, "total": 1})
+        except Exception as e:
+            yield _sse_event({"type": "progress", "current": 1, "total": 1,
+                              "item": str(e), "status": "failed"})
+            yield _sse_event({"type": "done", "updated": 0, "skipped": 0, "total": 1})
+        finally:
+            conn.close()
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 @router.post("/airlines_from_callsigns", status_code=200)
-async def fetch_airlines_from_callsigns(user: User = Depends(get_current_user)) -> dict:
+async def fetch_airlines_from_callsigns(user: User = Depends(get_current_user)):
     if not ENABLE_EXTERNAL_APIS:
         raise HTTPException(status_code=400, detail="This endpoint relies on the use of an external API, which you have opted out of.")
-    import requests
+
+    import requests as req
 
     res = database.execute_read_query("""SELECT flight_number, COUNT(*)
                                          FROM flights
                                          WHERE flight_number IS NOT NULL AND airline IS NULL AND username = ?
                                          GROUP BY flight_number;""", [user.username])
+    callsigns = list(res)
+    username = user.username
 
-    updates = 0
-    skips = 0
-    for callsign, amount in res:
-        adsbdb_res = requests.get(f"https://api.adsbdb.com/v0/callsign/{callsign}")
+    def generate():
+        db_path = os.path.join(DATA_PATH, "jetlog.db")
+        conn = sqlite3.connect(db_path)
 
-        print(callsign, amount, adsbdb_res.status_code)
+        total = len(callsigns)
+        if total == 0:
+            yield _sse_event({"type": "done", "updated": 0, "skipped": 0, "total": 0})
+            conn.close()
+            return
 
-        if adsbdb_res.status_code != 200:
-            skips += amount
-            continue
+        yield _sse_event({"type": "start", "total": total})
 
-        data = adsbdb_res.json()
+        updates = 0
+        skips = 0
 
-        airline_icao = data["response"]["flightroute"]["airline"]["icao"];
+        for i, (callsign, amount) in enumerate(callsigns):
+            try:
+                adsbdb_res = req.get(f"https://api.adsbdb.com/v0/callsign/{callsign}")
 
-        query = """UPDATE flights
-                   SET airline = ?
-                   WHERE flight_number = ? AND airline IS NULL AND username = ?;"""
+                if adsbdb_res.status_code != 200:
+                    skips += amount
+                    yield _sse_event({"type": "progress", "current": i + 1, "total": total,
+                                      "item": f"{callsign} ({amount} flights)", "status": "failed",
+                                      "error": f"API returned {adsbdb_res.status_code}"})
+                    continue
 
-        database.execute_query(query, [airline_icao, callsign, user.username])
-        updates += amount
+                data = adsbdb_res.json()
+                airline_icao = data["response"]["flightroute"]["airline"]["icao"]
 
-    return { "amountSkipped": skips, "amountUpdated": updates }
+                conn.execute("""UPDATE flights
+                               SET airline = ?
+                               WHERE flight_number = ? AND airline IS NULL AND username = ?;""",
+                             [airline_icao, callsign, username])
+                conn.commit()
+                updates += amount
+                yield _sse_event({"type": "progress", "current": i + 1, "total": total,
+                                  "item": f"{callsign} -> {airline_icao} ({amount} flights)", "status": "ok"})
+            except Exception as e:
+                skips += amount
+                yield _sse_event({"type": "progress", "current": i + 1, "total": total,
+                                  "item": f"{callsign} ({amount} flights)", "status": "failed",
+                                  "error": str(e)})
+
+        conn.close()
+        yield _sse_event({"type": "done", "updated": updates, "skipped": skips, "total": total})
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+def _apply_enrichment(flight: dict, aircraft_text, registration, real_dep, real_arr,
+                      origin_tz_offset, dest_tz_offset, group_detail: list) -> tuple[list, list]:
+    """Build SET clause and values for NULL fields that have data to backfill."""
+    set_parts = []
+    values = []
+
+    if flight["airplane"] is None and aircraft_text:
+        set_parts.append("airplane = ?")
+        values.append(aircraft_text)
+        if aircraft_text not in group_detail:
+            group_detail.append(aircraft_text)
+
+    if flight["tail_number"] is None and registration:
+        set_parts.append("tail_number = ?")
+        values.append(registration)
+        if registration not in group_detail:
+            group_detail.append(registration)
+
+    if flight["departure_time"] is None and real_dep:
+        if isinstance(real_dep, (int, float)):
+            local_dep = datetime.datetime.utcfromtimestamp(real_dep + origin_tz_offset)
+            set_parts.append("departure_time = ?")
+            values.append(local_dep.strftime("%H:%M"))
+        elif isinstance(real_dep, str) and ":" in real_dep:
+            set_parts.append("departure_time = ?")
+            values.append(real_dep[:5])  # HH:MM
+
+    if flight["arrival_time"] is None and real_arr:
+        if isinstance(real_arr, (int, float)):
+            local_arr = datetime.datetime.utcfromtimestamp(real_arr + dest_tz_offset)
+            set_parts.append("arrival_time = ?")
+            values.append(local_arr.strftime("%H:%M"))
+        elif isinstance(real_arr, str) and ":" in real_arr:
+            set_parts.append("arrival_time = ?")
+            values.append(real_arr[:5])
+
+    if flight["duration"] is None and real_dep and real_arr:
+        if isinstance(real_dep, (int, float)) and isinstance(real_arr, (int, float)):
+            dur_minutes = (real_arr - real_dep) // 60
+            if dur_minutes > 0:
+                set_parts.append("duration = ?")
+                values.append(dur_minutes)
+
+    return set_parts, values
+
+
+@router.post("/enrich", status_code=200)
+async def enrich_flight_details(user: User = Depends(get_current_user)):
+    """Backfill missing flight details from FR24 (recent) + Flightera (older)."""
+    if not ENABLE_EXTERNAL_APIS:
+        raise HTTPException(status_code=400, detail="This endpoint relies on the use of an external API, which you have opted out of.")
+
+    import time
+    from collections import defaultdict
+    from server.internal.flightradar24 import lookup_flight_history, lookup_flightera
+
+    rows = database.execute_read_query(
+        """SELECT id, flight_number, date, airplane, tail_number,
+                  departure_time, arrival_time, duration
+           FROM flights
+           WHERE flight_number IS NOT NULL
+             AND username = ?
+             AND (airplane IS NULL OR tail_number IS NULL
+                  OR departure_time IS NULL OR arrival_time IS NULL
+                  OR duration IS NULL);""",
+        [user.username]
+    )
+
+    groups: dict[str, list] = defaultdict(list)
+    for row in rows:
+        fid, fn, date_str, airplane, tail, dep_time, arr_time, dur = row
+        groups[fn].append({
+            "id": fid, "flight_number": fn, "date": date_str,
+            "airplane": airplane, "tail_number": tail,
+            "departure_time": dep_time, "arrival_time": arr_time,
+            "duration": dur,
+        })
+
+    group_list = list(groups.items())
+    username = user.username
+    has_flightera = bool(FLIGHTERA_API_KEY)
+
+    def generate():
+        db_path = os.path.join(DATA_PATH, "jetlog.db")
+        conn = sqlite3.connect(db_path)
+
+        total = len(group_list)
+        if total == 0:
+            yield _sse_event({"type": "done", "updated": 0, "skipped": 0, "total": 0})
+            conn.close()
+            return
+
+        yield _sse_event({"type": "start", "total": total})
+
+        updates = 0
+        skips = 0
+
+        for i, (flight_number, flight_list) in enumerate(group_list):
+            # Step 1: Try FR24 (free, recent ~2 weeks)
+            fr24_date_map: dict[str, dict] = {}
+            try:
+                history = lookup_flight_history(flight_number)
+                for entry in history:
+                    sched_dep = (entry.get("time", {}).get("scheduled", {}).get("departure")
+                                 or entry.get("time", {}).get("real", {}).get("departure"))
+                    if sched_dep:
+                        entry_date = datetime.datetime.utcfromtimestamp(sched_dep).strftime("%Y-%m-%d")
+                        fr24_date_map[entry_date] = entry
+            except Exception:
+                pass  # FR24 failed, will try Flightera
+
+            group_updated = 0
+            group_detail = []
+            flightera_pending = []  # flights not found in FR24
+
+            for flight in flight_list:
+                match = fr24_date_map.get(flight["date"])
+                if match:
+                    # FR24 match — extract fields
+                    aircraft_text = (match.get("aircraft", {}).get("model", {}).get("text") or None)
+                    registration = (match.get("aircraft", {}).get("registration") or None)
+                    real_dep = match.get("time", {}).get("real", {}).get("departure")
+                    real_arr = match.get("time", {}).get("real", {}).get("arrival")
+                    origin_tz = match.get("airport", {}).get("origin", {}).get("timezone", {}).get("offset", 0)
+                    dest_tz = match.get("airport", {}).get("destination", {}).get("timezone", {}).get("offset", 0)
+
+                    set_parts, values = _apply_enrichment(
+                        flight, aircraft_text, registration, real_dep, real_arr,
+                        origin_tz, dest_tz, group_detail)
+
+                    if set_parts:
+                        values.append(flight["id"])
+                        conn.execute(f"UPDATE flights SET {', '.join(set_parts)} WHERE id = ?;", values)
+                        conn.commit()
+                        updates += 1
+                        group_updated += 1
+                    else:
+                        skips += 1
+                else:
+                    flightera_pending.append(flight)
+
+            # Step 2: Flightera fallback for flights not in FR24
+            if flightera_pending and has_flightera:
+                for flight in flightera_pending:
+                    try:
+                        result = lookup_flightera(flight["flight_number"], flight["date"], FLIGHTERA_API_KEY)
+                    except Exception:
+                        result = None
+
+                    if not result:
+                        skips += 1
+                        continue
+
+                    set_parts, values = _apply_enrichment(
+                        flight, result["aircraft_text"], result["registration"],
+                        result["real_departure"], result["real_arrival"],
+                        result["origin_tz_offset"], result["dest_tz_offset"],
+                        group_detail)
+
+                    if set_parts:
+                        values.append(flight["id"])
+                        conn.execute(f"UPDATE flights SET {', '.join(set_parts)} WHERE id = ?;", values)
+                        conn.commit()
+                        updates += 1
+                        group_updated += 1
+                    else:
+                        skips += 1
+
+                    time.sleep(1)  # rate limit Flightera
+            elif flightera_pending:
+                skips += len(flightera_pending)
+
+            detail = ", ".join(group_detail[:2]) if group_detail else "no match"
+            source = "FR24" if not flightera_pending else ("Flightera" if has_flightera else "FR24 only")
+            status = "ok" if group_updated > 0 else "failed"
+            yield _sse_event({"type": "progress", "current": i + 1, "total": total,
+                              "item": f"{flight_number} — {group_updated}/{len(flight_list)} enriched via {source} ({detail})",
+                              "status": status})
+
+            time.sleep(2)  # respect FR24 rate limits
+
+        conn.close()
+        yield _sse_event({"type": "done", "updated": updates, "skipped": skips, "total": total})
+
+    return StreamingResponse(generate(), media_type="text/event-stream")

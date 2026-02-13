@@ -81,12 +81,12 @@ class APIClass {
         }
     }
 
-    async post(endpoint: string, data: Object, downloadResponse: boolean = false) {
+    async post(endpoint: string, data: Object, downloadResponse: boolean = false, timeout?: number) {
         endpoint = endpoint.trim();
 
         try {
             if(!downloadResponse) {
-                const res = await this.client.post(endpoint, data);
+                const res = await this.client.post(endpoint, data, timeout ? { timeout } : {});
                 return res.data;
             } else {
                 this.client.post(endpoint, data)

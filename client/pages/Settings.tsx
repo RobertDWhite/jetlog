@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import API, { ENABLE_EXTERNAL_APIS, FR24_CONFIGURED } from '../api';
+import API, { BASE_URL, ENABLE_EXTERNAL_APIS, FR24_CONFIGURED } from '../api';
 import { Heading, Label, Input, Checkbox, Subheading, Button, Dialog, Select } from '../components/Elements'
 import ConfigStorage, { ConfigInterface } from '../storage/configStorage';
 import { User } from '../models';
@@ -92,7 +92,10 @@ export default function Settings() {
     const [options, setOptions] = useState<ConfigInterface>(ConfigStorage.getAllSettings())
     const [user, setUser] = useState<User>();
     const [allUsers, setAllUsers] = useState<User[]>([]);
-    const [disableJobs, setDisableJobs] = useState(false);
+    const [runningUtility, setRunningUtility] = useState<string | null>(null);
+    const [utilityLog, setUtilityLog] = useState<string[]>([]);
+    const [utilityProgress, setUtilityProgress] = useState<{current: number, total: number} | null>(null);
+    const utilityLogEndRef = useRef<HTMLDivElement>(null);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -135,18 +138,78 @@ export default function Settings() {
     }
 
     const [syncingFR24, setSyncingFR24] = useState(false);
+    const [fr24Log, setFR24Log] = useState<string[]>([]);
+    const [fr24Progress, setFR24Progress] = useState<{current: number, total: number} | null>(null);
+    const logEndRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [fr24Log]);
+
+    useEffect(() => {
+        utilityLogEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [utilityLog]);
 
     const syncToFR24 = async () => {
         setSyncingFR24(true);
+        setFR24Log([]);
+        setFR24Progress(null);
+
         try {
-            const data = await API.post("/fr24/sync", {});
-            let msg = `Synced: ${data.synced}\nFailed: ${data.failed}`;
-            if (data.errors && data.errors.length > 0) {
-                msg += "\n\nErrors:\n" + data.errors.join("\n");
+            const token = TokenStorage.getToken();
+            const res = await fetch(BASE_URL + "/api/fr24/sync", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${token}`,
+                    "Content-Type": "application/json"
+                },
+                body: "{}"
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                setFR24Log(prev => [...prev, `Error: ${err.detail || res.statusText}`]);
+                setSyncingFR24(false);
+                return;
             }
-            alert(msg);
-        } catch {
-            // error already handled by API class
+
+            const reader = res.body!.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+
+                for (const line of lines) {
+                    if (!line.startsWith("data: ")) continue;
+                    const data = JSON.parse(line.slice(6));
+
+                    if (data.type === "start") {
+                        setFR24Progress({ current: 0, total: data.total });
+                        setFR24Log(prev => [...prev, `Starting sync of ${data.total} flights...`]);
+                    } else if (data.type === "login") {
+                        setFR24Log(prev => [...prev, data.message]);
+                    } else if (data.type === "progress") {
+                        setFR24Progress({ current: data.current, total: data.total });
+                        const icon = data.status === "ok" ? "+" : "!";
+                        const msg = `[${icon}] (${data.current}/${data.total}) ${data.flight}` +
+                                    (data.error ? ` — ${data.error}` : "");
+                        setFR24Log(prev => [...prev, msg]);
+                    } else if (data.type === "done") {
+                        setFR24Log(prev => [...prev, `Done: ${data.synced} synced, ${data.failed} failed`]);
+                        setFR24Progress(null);
+                    } else if (data.type === "error") {
+                        setFR24Log(prev => [...prev, `Error: ${data.message}`]);
+                    }
+                }
+            }
+        } catch (err) {
+            setFR24Log(prev => [...prev, `Connection error: ${err}`]);
         } finally {
             setSyncingFR24(false);
         }
@@ -177,24 +240,65 @@ export default function Settings() {
         window.location.reload();
     }
 
-    const computeConnections = async () => {
-        setDisableJobs(true);
+    const runUtility = async (endpoint: string, label: string) => {
+        setRunningUtility(label);
+        setUtilityLog([]);
+        setUtilityProgress(null);
 
-        API.post("/flights/connections", {})
-        .then((data: object) => {
-            alert(`Flights skipped: ${data["amountSkipped"]}\nFlights updated: ${data["amountUpdated"]}`);
-            setDisableJobs(false);
-        });
-    }
+        try {
+            const token = TokenStorage.getToken();
+            const res = await fetch(BASE_URL + "/api" + endpoint, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${token}`,
+                    "Content-Type": "application/json"
+                },
+                body: "{}"
+            });
 
-    const fetchAirlinesFromCallsigns = async () => {
-        setDisableJobs(true);
+            if (!res.ok) {
+                const err = await res.json();
+                setUtilityLog(prev => [...prev, `Error: ${err.detail || res.statusText}`]);
+                setRunningUtility(null);
+                return;
+            }
 
-        API.post("/flights/airlines_from_callsigns", {})
-        .then((data: object) => {
-            alert(`Flights skipped: ${data["amountSkipped"]}\nFlights updated: ${data["amountUpdated"]}`);
-            setDisableJobs(false);
-        })
+            const reader = res.body!.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+
+                for (const line of lines) {
+                    if (!line.startsWith("data: ")) continue;
+                    const data = JSON.parse(line.slice(6));
+
+                    if (data.type === "start") {
+                        setUtilityProgress({ current: 0, total: data.total });
+                        setUtilityLog(prev => [...prev, `Starting ${label} (${data.total} items)...`]);
+                    } else if (data.type === "progress") {
+                        setUtilityProgress({ current: data.current, total: data.total });
+                        const icon = data.status === "ok" ? "+" : "!";
+                        const msg = `[${icon}] (${data.current}/${data.total}) ${data.item}` +
+                                    (data.error ? ` — ${data.error}` : "");
+                        setUtilityLog(prev => [...prev, msg]);
+                    } else if (data.type === "done") {
+                        setUtilityLog(prev => [...prev, `Done: ${data.updated} updated, ${data.skipped} skipped`]);
+                        setUtilityProgress(null);
+                    }
+                }
+            }
+        } catch (err) {
+            setUtilityLog(prev => [...prev, `Connection error: ${err}`]);
+        } finally {
+            setRunningUtility(null);
+        }
     }
 
     return (
@@ -231,7 +335,21 @@ export default function Settings() {
                 { FR24_CONFIGURED &&
                     <>
                         <br />
-                        <Button text="Sync to MyFlightRadar24" disabled={syncingFR24} onClick={syncToFR24}/>
+                        <Button text={syncingFR24 ? "Syncing..." : "Sync to MyFlightRadar24"} disabled={syncingFR24} onClick={syncToFR24}/>
+                        { fr24Progress &&
+                            <div className="w-full bg-gray-700 rounded mt-2 h-3">
+                                <div className="bg-blue-500 h-3 rounded transition-all"
+                                     style={{ width: `${(fr24Progress.current / fr24Progress.total) * 100}%` }} />
+                            </div>
+                        }
+                        { fr24Log.length > 0 &&
+                            <div className="mt-2 bg-gray-900 text-gray-200 text-xs font-mono p-2 rounded max-h-48 overflow-y-auto">
+                                {fr24Log.map((line, i) => (
+                                    <div key={i} className={line.startsWith("[!]") ? "text-red-400" : ""}>{line}</div>
+                                ))}
+                                <div ref={logEndRef} />
+                            </div>
+                        }
                     </>
                 }
             </div>
@@ -288,13 +406,41 @@ export default function Settings() {
 
                 <div className="flex justify-between">
                     <Label text="Compute flight connections" />
-                    <Button text="Run" disabled={disableJobs} onClick={computeConnections} />
+                    <Button text={runningUtility === "Compute connections" ? "Running..." : "Run"}
+                            disabled={runningUtility !== null}
+                            onClick={() => runUtility("/flights/connections", "Compute connections")} />
                 </div>
 
-                { ENABLE_EXTERNAL_APIS && 
+                { ENABLE_EXTERNAL_APIS &&
                     <div className="flex justify-between">
                         <Label text="Fetch missing airlines" />
-                        <Button text="Run" disabled={disableJobs} onClick={fetchAirlinesFromCallsigns} />
+                        <Button text={runningUtility === "Fetch airlines" ? "Running..." : "Run"}
+                                disabled={runningUtility !== null}
+                                onClick={() => runUtility("/flights/airlines_from_callsigns", "Fetch airlines")} />
+                    </div>
+                }
+
+                { ENABLE_EXTERNAL_APIS &&
+                    <div className="flex justify-between">
+                        <Label text="Enrich flight details" />
+                        <Button text={runningUtility === "Enrich flights" ? "Running..." : "Run"}
+                                disabled={runningUtility !== null}
+                                onClick={() => runUtility("/flights/enrich", "Enrich flights")} />
+                    </div>
+                }
+
+                { utilityProgress &&
+                    <div className="w-full bg-gray-700 rounded mt-2 h-3">
+                        <div className="bg-blue-500 h-3 rounded transition-all"
+                             style={{ width: `${(utilityProgress.current / utilityProgress.total) * 100}%` }} />
+                    </div>
+                }
+                { utilityLog.length > 0 &&
+                    <div className="mt-2 bg-gray-900 text-gray-200 text-xs font-mono p-2 rounded max-h-48 overflow-y-auto">
+                        {utilityLog.map((line, i) => (
+                            <div key={i} className={line.startsWith("[!]") ? "text-red-400" : ""}>{line}</div>
+                        ))}
+                        <div ref={utilityLogEndRef} />
                     </div>
                 }
             </div>

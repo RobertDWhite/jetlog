@@ -1,5 +1,13 @@
 import React, {ChangeEvent, useState} from 'react';
 
+export function Spinner() {
+    return (
+        <div className="flex justify-center items-center p-8">
+            <div className="w-8 h-8 border-4 border-gray-300 border-t-primary-400 rounded-full animate-spin dark:border-gray-600 dark:border-t-primary-400"></div>
+        </div>
+    );
+}
+
 interface HeadingProps {
     text: string;
 }
@@ -24,7 +32,7 @@ interface WhisperProps {
 }
 export function Whisper({ text, negativeTopMargin = false}: WhisperProps) {
     return (
-        <p className={`${negativeTopMargin ? "-mt-4" : ""} text-sm font-mono text-gray-700/60`}>
+        <p className={`${negativeTopMargin ? "-mt-4" : ""} text-sm font-mono text-gray-700/60 dark:text-gray-400/80`}>
             {text}
         </p>
     )
@@ -39,22 +47,22 @@ export function Label({ text, required }: LabelProps) {
         <label className={`${required ? "after:content-['*'] after:ml-0.5 after:text-red-500" : ""}
                           mb-1 font-semibold block`}>
             {text}
-        </label> 
+        </label>
     );
 }
 
 interface ButtonProps {
     text: string;
-    level?: "default"|"success"|"danger";
+    level?: "default"|"success"|"danger"|"primary";
     right?: boolean;
     submit?: boolean;
     disabled?: boolean;
     onClick?: React.MouseEventHandler<HTMLButtonElement>|null;
 }
-export function Button({ text, 
+export function Button({ text,
                          level = "default",
                          right = false,
-                         submit = false, 
+                         submit = false,
                          disabled = false,
                          onClick = null }: ButtonProps) {
     var colors = "";
@@ -65,9 +73,12 @@ export function Button({ text,
         case "danger":
             colors = "bg-red-500 text-white enabled:hover:bg-red-400";
             break;
+        case "primary":
+            colors = "bg-primary-500 text-white enabled:hover:bg-primary-400";
+            break;
         case "default":
         default:
-            colors = "bg-white text-black border border-gray-300 enabled:hover:bg-gray-100";
+            colors = "bg-white text-black border border-gray-300 enabled:hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-100 dark:border-gray-500 dark:enabled:hover:bg-gray-600";
     };
 
     return (
@@ -91,19 +102,20 @@ interface InputProps {
     required?: boolean;
     placeholder?: string;
 }
-export function Input({ type, 
-                        name, 
+export function Input({ type,
+                        name,
                         defaultValue,
-                        maxLength, 
-                        onChange = null, 
-                        required = false, 
+                        maxLength,
+                        onChange = null,
+                        required = false,
                         placeholder}: InputProps) {
     return (
-        <input  className={`${type == "text" || type == "password" ? "w-full" : ""} px-1 mb-4 bg-white rounded-none outline-none font-mono box-border 
-                            placeholder:italic border-b-2 border-gray-200 focus:border-primary-400`}
+        <input  className={`${type == "text" || type == "password" ? "w-full" : ""} px-1 mb-4 bg-white rounded-none outline-none font-mono box-border
+                            placeholder:italic border-b-2 border-gray-200 focus:border-primary-400
+                            dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600 dark:placeholder:text-gray-500`}
                 type={type}
                 accept={type == "file" ? ".csv,.db" : undefined}
-                name={name} 
+                name={name}
                 defaultValue={defaultValue}
                 maxLength={maxLength}
                 min={type == "number" ? 0 : undefined}
@@ -118,20 +130,39 @@ interface TextAreaProps {
     defaultValue?: string;
     placeholder?: string;
     maxLength?: number;
+    onChange?: ((event: ChangeEvent<HTMLTextAreaElement>) => any)|null;
 }
 export function TextArea ({ name,
                             defaultValue,
                             placeholder,
-                            maxLength }: TextAreaProps) {
+                            maxLength,
+                            onChange = null }: TextAreaProps) {
+    const [charCount, setCharCount] = useState(defaultValue?.length || 0);
+
+    const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+        setCharCount(e.target.value.length);
+        if (onChange) onChange(e);
+    };
+
     return (
-        <textarea rows={5} 
-                  className="w-full px-1 mb-4 bg-white rounded-none outline-none font-mono box-border
-                             border-2 border-gray-200 focus:border-primary-400"
-                  name={name}
-                  defaultValue={defaultValue}
-                  placeholder={placeholder}
-                  maxLength={maxLength} >
-        </textarea>
+        <div className="relative">
+            <textarea rows={5}
+                      className="w-full px-1 mb-4 bg-white rounded-none outline-none font-mono box-border
+                                 border-2 border-gray-200 focus:border-primary-400
+                                 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600"
+                      name={name}
+                      defaultValue={defaultValue}
+                      placeholder={placeholder}
+                      maxLength={maxLength}
+                      onChange={handleChange} >
+            </textarea>
+            {maxLength && (
+                <span className={`absolute bottom-5 right-2 text-xs font-mono
+                                  ${charCount >= maxLength ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'}`}>
+                    {charCount}/{maxLength}
+                </span>
+            )}
+        </div>
     );
 }
 
@@ -142,9 +173,10 @@ interface CheckboxProps {
 }
 export function Checkbox({ checked, name, onChange }: CheckboxProps) {
     return (
-        <input  className="ml-5 bg-white rounded-none outline-none box-border border-2 border-gray-200 hover:border-primary-400"
+        <input  className="ml-5 bg-white rounded-none outline-none box-border border-2 border-gray-200 hover:border-primary-400
+                           dark:bg-gray-800 dark:border-gray-600"
                 type="checkbox"
-                name={name} 
+                name={name}
                 onChange={onChange ? onChange : () => {}}
                 checked={checked} />
     )
@@ -166,15 +198,20 @@ function Option({text, value}: OptionProps) {
 interface SelectProps {
     name?: string;
     options: OptionProps[];
+    defaultValue?: string;
+    onChange?: ((event: ChangeEvent<HTMLSelectElement>) => any)|null;
 }
-export function Select({name, options}: SelectProps) {
+export function Select({name, options, defaultValue, onChange = null}: SelectProps) {
     return (
-        <select className="px-1 py-0.5 mb-4 bg-white rounded-none outline-none font-mono bg-white box-border 
-                border-b-2 border-gray-200 focus:border-primary-400"
-                name={name}>
+        <select className="px-1 py-0.5 mb-4 bg-white rounded-none outline-none font-mono box-border
+                border-b-2 border-gray-200 focus:border-primary-400
+                dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600"
+                name={name}
+                defaultValue={defaultValue}
+                onChange={onChange ? onChange : () => {}}>
             { options.map((option) => (
-                <Option text={option.text} value={option.value}/>  
-            ))} 
+                <Option text={option.text} value={option.value}/>
+            ))}
         </select>
     );
 }
@@ -208,10 +245,10 @@ export function Dialog({ title, buttonLevel = "default", formBody, onSubmit }: D
     <>
             <Button text={title} onClick={openModal} level={buttonLevel}/>
 
-            <dialog id={modalId} className="md:w-2/3 max-md:w-4/5 rounded-md">
+            <dialog id={modalId} className="md:w-2/3 max-md:w-4/5 rounded-md dark:bg-gray-800 dark:text-gray-100">
             <form className="flex flex-col" onSubmit={handleSubmit}>
-                
-                <div className="pl-5 pt-2 border-b border-b-gray-400">
+
+                <div className="pl-5 pt-2 border-b border-b-gray-400 dark:border-b-gray-600">
                     <Subheading text={title} />
                 </div>
 
@@ -219,10 +256,10 @@ export function Dialog({ title, buttonLevel = "default", formBody, onSubmit }: D
                     {formBody}
                 </div>
 
-                <div className="px-5 py-2 border-t border-t-gray-400">
+                <div className="px-5 py-2 border-t border-t-gray-400 dark:border-t-gray-600">
                     <Button text="Cancel"
                             onClick={closeModal} />
-                    <Button text="Done" 
+                    <Button text="Done"
                             level="success"
                             right
                             submit/>

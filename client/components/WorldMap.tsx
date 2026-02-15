@@ -18,12 +18,34 @@ const defaultBounds: BoundsInterface = {
     east: 180
 }
 
+interface TooltipData {
+    x: number;
+    y: number;
+    content: React.ReactNode;
+}
+
+function MapTooltip({ tooltip, onClose }: { tooltip: TooltipData; onClose: () => void }) {
+    return (
+        <div className="absolute z-50 bg-gray-900 text-white text-sm rounded shadow-lg px-3 py-2 max-w-xs pointer-events-auto"
+             style={{ left: tooltip.x, top: tooltip.y, transform: 'translate(-50%, -100%) translateY(-10px)' }}>
+            {tooltip.content}
+            <button className="absolute top-0 right-1 text-gray-400 hover:text-white text-xs leading-none"
+                    onClick={onClose}>
+                {'\u2715'}
+            </button>
+        </div>
+    );
+}
+
 interface MapGeographiesProps {
     lines: Trajectory[];
     markers: Coord[];
     zoom: number;
+    onMarkerClick?: (marker: Coord, event: React.MouseEvent) => void;
+    onLineHover?: (line: Trajectory, event: React.MouseEvent) => void;
+    onLineLeave?: () => void;
 }
-function MapFeatures({ lines, markers, zoom }: MapGeographiesProps) {
+function MapFeatures({ lines, markers, zoom, onMarkerClick, onLineHover, onLineLeave }: MapGeographiesProps) {
     const [world, setWorld] = useState<object>();
 
     useEffect(() => {
@@ -37,6 +59,27 @@ function MapFeatures({ lines, markers, zoom }: MapGeographiesProps) {
     }
 
     const scaleFactor = 1 / Math.sqrt(zoom);
+
+    const maxFrequency = lines.length > 0 ? Math.max(...lines.map(l => l.frequency)) : 1;
+
+    const heatColor = (frequency: number) => {
+        if (maxFrequency <= 1) return '#FF5533CC';
+        const t = (frequency - 1) / (maxFrequency - 1); // 0 to 1
+        // blue → cyan → green → yellow → red
+        if (t < 0.25) {
+            const s = t / 0.25;
+            return `rgba(${Math.round(66 + s * (0 - 66))}, ${Math.round(133 + s * (200 - 133))}, ${Math.round(244 + s * (200 - 244))}, 0.8)`;
+        } else if (t < 0.5) {
+            const s = (t - 0.25) / 0.25;
+            return `rgba(${Math.round(s * 76)}, ${Math.round(200 + s * (175 - 200))}, ${Math.round(200 - s * 120)}, 0.8)`;
+        } else if (t < 0.75) {
+            const s = (t - 0.5) / 0.25;
+            return `rgba(${Math.round(76 + s * (255 - 76))}, ${Math.round(175 + s * (200 - 175))}, ${Math.round(80 - s * 80)}, 0.8)`;
+        } else {
+            const s = (t - 0.75) / 0.25;
+            return `rgba(${255}, ${Math.round(200 - s * 150)}, ${0}, 0.8)`;
+        }
+    };
 
     return (
         <>
@@ -54,11 +97,12 @@ function MapFeatures({ lines, markers, zoom }: MapGeographiesProps) {
             }
         </Geographies>
 
-        { lines.map((line) => (
+        { lines.map((line, i) => (
             <Line
+                key={i}
                 from={[line.first.longitude, line.first.latitude]}
                 to={[line.second.longitude, line.second.latitude]}
-                stroke="#FF5533CC"
+                stroke={ConfigStorage.getSetting("frequencyBasedLine") === "true" ? heatColor(line.frequency) : "#FF5533CC"}
                 strokeWidth={
                         (
                             ConfigStorage.getSetting("frequencyBasedLine") === "true" ?
@@ -66,12 +110,19 @@ function MapFeatures({ lines, markers, zoom }: MapGeographiesProps) {
                             : 1
                         ) * scaleFactor
                     }
-                strokeLinecap="round" />
+                strokeLinecap="round"
+                style={{ cursor: onLineHover ? 'pointer' : 'default' }}
+                onMouseEnter={onLineHover ? (e) => onLineHover(line, e as any) : undefined}
+                onMouseLeave={onLineLeave}
+            />
 
         ))}
 
-        { markers.map((marker) => (
-            <Marker coordinates={[marker.longitude, marker.latitude]}>
+        { markers.map((marker, i) => (
+            <Marker key={i}
+                    coordinates={[marker.longitude, marker.latitude]}
+                    onClick={onMarkerClick ? (e) => onMarkerClick(marker, e as any) : undefined}
+                    style={{ cursor: onMarkerClick ? 'pointer' : 'default' }}>
                 <circle r={
                         (
                             ConfigStorage.getSetting("frequencyBasedMarker") === "true" ?
@@ -98,7 +149,9 @@ export default function WorldMap() {
     const [markers, setMarkers] = useState<Coord[]>([]);
     const [initialZoom, setInitialZoom] = useState<number>(1);
     const [zoom, setZoom] = useState<number>(1);
-    const [center, setCenter] = useState<[number, number]>([0, 0])
+    const [center, setCenter] = useState<[number, number]>([0, 0]);
+    const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+    const [lineTooltip, setLineTooltip] = useState<TooltipData | null>(null);
 
     useEffect(() => {
         API.get("/geography/decorations")
@@ -107,9 +160,6 @@ export default function WorldMap() {
             setMarkers(data[1]);
 
             if (data[1] && data[1].length > 1 && ConfigStorage.getSetting("restrictWorldMap") === "true") {
-                // find bounding box defined by visited airports
-                // i.e. get southernmost, eastmost, northmost, westmost
-                // visited airports
                 const latitudes = data[1].map(coord => coord.latitude);
                 const longitudes = data[1].map(coord => coord.longitude);
 
@@ -118,12 +168,10 @@ export default function WorldMap() {
                 const west = Math.min(...longitudes);
                 const east = Math.max(...longitudes);
 
-                // compute center
                 const centerLon = (west + east) / 2;
                 const centerLat = (south + north) / 2;
                 setCenter([centerLon, centerLat]);
 
-                // compute zoom
                 const lonSpan = east - west;
                 const latSpan = north - south;
                 const maxSpan = Math.max(lonSpan, latSpan);
@@ -138,8 +186,53 @@ export default function WorldMap() {
         });
     }, []);
 
+    const handleMarkerClick = (marker: Coord, event: React.MouseEvent) => {
+        const rect = (event.currentTarget as Element).closest('svg')?.getBoundingClientRect();
+        if (!rect) return;
+
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+
+        const label = marker.iata || marker.icao || '';
+        const content = (
+            <div>
+                <div className="font-bold">{label}</div>
+                {marker.name && <div className="text-gray-300 text-xs">{marker.name}</div>}
+                <div className="text-xs mt-1">{marker.frequency} visit{marker.frequency !== 1 ? 's' : ''}</div>
+            </div>
+        );
+
+        setTooltip({ x, y, content });
+        setLineTooltip(null);
+    };
+
+    const handleLineHover = (line: Trajectory, event: React.MouseEvent) => {
+        const rect = (event.currentTarget as Element).closest('svg')?.getBoundingClientRect();
+        if (!rect) return;
+
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+
+        const originLabel = line.first.iata || line.originIcao || '';
+        const destLabel = line.second.iata || line.destIcao || '';
+
+        const content = (
+            <div>
+                <div className="font-bold">{originLabel} {'\u2192'} {destLabel}</div>
+                <div className="text-xs mt-1">{line.frequency} flight{line.frequency !== 1 ? 's' : ''}</div>
+            </div>
+        );
+
+        setLineTooltip({ x, y, content });
+    };
+
+    const handleBackgroundClick = () => {
+        setTooltip(null);
+        setLineTooltip(null);
+    };
+
     return (
-        <>
+        <div className="relative" onClick={handleBackgroundClick}>
             <ComposableMap width={1000} height={470}>
                 <ZoomableGroup maxZoom={10}
                                translateExtent={[[0, 0], [1000, 470]]}
@@ -149,11 +242,17 @@ export default function WorldMap() {
                                    if (newZoom != zoom) setZoom(newZoom)
                                }}>
 
-                    <MapFeatures lines={lines} markers={markers} zoom={zoom}/>
+                    <MapFeatures lines={lines} markers={markers} zoom={zoom}
+                                 onMarkerClick={handleMarkerClick}
+                                 onLineHover={handleLineHover}
+                                 onLineLeave={() => setLineTooltip(null)} />
 
                 </ZoomableGroup>
             </ComposableMap>
-        </>
+
+            {tooltip && <MapTooltip tooltip={tooltip} onClose={() => setTooltip(null)} />}
+            {lineTooltip && <MapTooltip tooltip={lineTooltip} onClose={() => setLineTooltip(null)} />}
+        </div>
     );
 }
 
@@ -178,7 +277,7 @@ export function SingleFlightMap({ flightID, distance }: SingleFlightMapProps) {
         return;
     }
 
-    // function that computes midpoint of a trajectory 
+    // function that computes midpoint of a trajectory
     // on a sphere, i.e. supporting trajs. that 'clip'
     // around the world projection
     const midpointOnSphere = (p1: Coord, p2: Coord) => {
@@ -218,14 +317,14 @@ export function SingleFlightMap({ flightID, distance }: SingleFlightMapProps) {
     const zoom = Math.min(20000/distance, 10) * 160;
 
     return (
-        <ComposableMap width={1000} 
+        <ComposableMap width={1000}
                        height={470}
                        projectionConfig={{
                            scale: zoom,
                            rotate: [-center[0], -center[1], 0] // rotate world around center of traj.
                        }}>
 
-                {/* the zoom calculation effectively undoes the automatic zoom 
+                {/* the zoom calculation effectively undoes the automatic zoom
                     adjustment from the ComposableMap component */}
                 <MapFeatures lines={lines} markers={markers} zoom={1 / Math.sqrt(zoom)}/>
 

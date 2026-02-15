@@ -21,6 +21,7 @@ class Database():
                     arrival_time     TEXT,
                     arrival_date     TEXT,
                     seat             TEXT NULL CHECK(seat IN ('aisle', 'middle', 'window')),
+                    seat_number      TEXT,
                     aircraft_side    TEXT NULL CHECK(aircraft_side IN ('left', 'right', 'center')),
                     ticket_class     TEXT NULL CHECK(ticket_class IN ('private', 'first', 'business', 'economy+', 'economy')),
                     purpose          TEXT NULL CHECK(purpose IN ('leisure', 'business', 'crew', 'other')),
@@ -31,6 +32,9 @@ class Database():
                     tail_number      TEXT,
                     flight_number    TEXT,
                     notes            TEXT,
+                    cost             REAL,
+                    currency         TEXT,
+                    rating           INTEGER CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5)),
                     connection       INTEGER NULL,
                     FOREIGN KEY (connection) REFERENCES flights (id) ON DELETE SET NULL,
                     CHECK (connection IS NULL OR connection <> id)
@@ -44,6 +48,7 @@ class Database():
                     username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
                     password_hash TEXT NOT NULL,
                     is_admin      BIT NOT NULL DEFAULT 0,
+                    public_profile BIT NOT NULL DEFAULT 0,
                     last_login    DATETIME,
                     created_on    DATETIME NOT NULL DEFAULT current_timestamp
                 )""",
@@ -65,6 +70,7 @@ class Database():
 
             # ensure fr24 sync tracking table exists
             self.ensure_fr24_table()
+            self.ensure_audit_table()
 
             # verify that all tables are up-to-date
             # (backward compatibility)
@@ -122,6 +128,7 @@ class Database():
         self.create_first_user()
         self.update_tables(drop_old=False)
         self.ensure_fr24_table()
+        self.ensure_audit_table()
 
     def create_first_user(self):
         from server.auth.utils import hash_password
@@ -139,6 +146,17 @@ class Database():
         CREATE TABLE IF NOT EXISTS fr24_synced_flights (
             flight_id  INTEGER PRIMARY KEY REFERENCES flights(id) ON DELETE CASCADE,
             synced_at  DATETIME DEFAULT current_timestamp
+        );""")
+
+    def ensure_audit_table(self):
+        self.execute_query("""
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp  DATETIME NOT NULL DEFAULT current_timestamp,
+            username   TEXT NOT NULL,
+            action     TEXT NOT NULL,
+            flight_id  INTEGER,
+            details    TEXT
         );""")
 
     def update_tables(self, drop_old: bool = True):

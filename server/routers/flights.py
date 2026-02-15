@@ -11,8 +11,8 @@ from server.environment import ENABLE_EXTERNAL_APIS, DATA_PATH, FLIGHTERA_API_KE
 from server.models import AirlineModel, AirportModel, ClassType, CustomModel, FlightModel, AircraftSide, FlightPurpose, SeatType, User
 from server.auth.users import get_current_user
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse, FileResponse
 from enum import Enum
 
 
@@ -113,6 +113,33 @@ async def add_many_flights(flights: list[FlightModel], timezones: bool = True, u
 
     return creator_flight_id
 
+@router.post("/trip", status_code=201)
+async def add_trip(flights: list[FlightModel], timezones: bool = True, user: User = Depends(get_current_user)) -> int:
+    if len(flights) < 1:
+        raise HTTPException(status_code=400, detail="Trip must have at least one flight")
+
+    flight_ids = []
+    for flight in flights:
+        flight_id = await add_flight(flight, timezones, user)
+        flight_ids.append(flight_id)
+
+    # Link flights via connection: flight N connects to flight N+1
+    for i in range(len(flight_ids) - 1):
+        database.execute_query(
+            "UPDATE flights SET connection = ? WHERE id = ?;",
+            [flight_ids[i + 1], flight_ids[i]]
+        )
+
+    return flight_ids[0]
+
+@router.get("/check-duplicate", status_code=200)
+async def check_duplicate(date: str, origin: str, destination: str, user: User = Depends(get_current_user)) -> dict:
+    res = database.execute_read_query(
+        "SELECT id FROM flights WHERE date = ? AND UPPER(origin) = UPPER(?) AND UPPER(destination) = UPPER(?) AND username = ?;",
+        [date, origin, destination, user.username]
+    )
+    return {"duplicate": len(res) > 0, "count": len(res)}
+
 @router.post("", status_code=201)
 async def add_flight(flight: FlightModel, timezones: bool = True, user: User = Depends(get_current_user)) -> int:
     # only admins may add flights for other users
@@ -155,6 +182,12 @@ async def add_flight(flight: FlightModel, timezones: bool = True, user: User = D
     values = flight.get_values(ignore=["id"], explicit=explicit)
 
     new_id = database.execute_query(query, values)[0]
+
+    database.execute_query(
+        "INSERT INTO audit_logs (username, action, flight_id, details) VALUES (?, ?, ?, ?);",
+        [user.username, "create", new_id, f"{flight.origin} -> {flight.destination} on {flight.date}"]
+    )
+
     return new_id
 
 class FlightPatchModel(CustomModel):
@@ -175,6 +208,7 @@ class FlightPatchModel(CustomModel):
     tail_number:      str|None = None
     flight_number:    str|None = None
     notes:            str|None = None
+    rating:           int|None = None
     connection:       int|None = None
 
 @router.patch("", status_code=200)
@@ -237,6 +271,13 @@ async def update_flight(id: int,
     values = [value for value in new_flight.get_values() if value is not None]
 
     new_id = database.execute_query(query, values)[0]
+
+    changed = [attr for attr in FlightPatchModel.get_attributes() if getattr(new_flight, attr) is not None]
+    database.execute_query(
+        "INSERT INTO audit_logs (username, action, flight_id, details) VALUES (?, ?, ?, ?);",
+        [user.username, "edit", id, f"Updated: {', '.join(changed)}"]
+    )
+
     return new_id
 
 @router.delete("", status_code=200)
@@ -244,7 +285,149 @@ async def delete_flight(id: int, user: User = Depends(get_current_user)) -> int:
     await check_flight_authorization(id, user)
 
     deleted_id = database.execute_query("DELETE FROM flights WHERE id = ? RETURNING id;", [id])[0]
+
+    database.execute_query(
+        "INSERT INTO audit_logs (username, action, flight_id, details) VALUES (?, ?, ?, ?);",
+        [user.username, "delete", id, None]
+    )
+
     return deleted_id
+
+@router.post("/bulk-delete", status_code=200)
+async def bulk_delete_flights(ids: list[int], user: User = Depends(get_current_user)) -> int:
+    for flight_id in ids:
+        await check_flight_authorization(flight_id, user)
+    for flight_id in ids:
+        database.execute_query("DELETE FROM flights WHERE id = ?;", [flight_id])
+    database.execute_query(
+        "INSERT INTO audit_logs (username, action, flight_id, details) VALUES (?, ?, ?, ?);",
+        [user.username, "bulk-delete", None, f"Deleted {len(ids)} flights: {ids}"]
+    )
+    return len(ids)
+
+class BulkEditPayload(CustomModel):
+    ids:              list[int]
+    ticket_class:     ClassType|None = None
+    purpose:          FlightPurpose|None = None
+    seat:             SeatType|None = None
+    aircraft_side:    AircraftSide|None = None
+    airline:          str|None = None
+
+@router.post("/bulk-edit", status_code=200)
+async def bulk_edit_flights(payload: BulkEditPayload, user: User = Depends(get_current_user)) -> int:
+    for flight_id in payload.ids:
+        await check_flight_authorization(flight_id, user)
+
+    set_parts = []
+    values = []
+    for field in ["ticket_class", "purpose", "seat", "aircraft_side", "airline"]:
+        val = getattr(payload, field)
+        if val is not None:
+            set_parts.append(f"{field} = ?")
+            values.append(val.value if hasattr(val, 'value') else val)
+
+    if not set_parts:
+        return 0
+
+    placeholders = ",".join(["?"] * len(payload.ids))
+    query = f"UPDATE flights SET {', '.join(set_parts)} WHERE id IN ({placeholders});"
+    database.execute_query(query, values + payload.ids)
+    database.execute_query(
+        "INSERT INTO audit_logs (username, action, flight_id, details) VALUES (?, ?, ?, ?);",
+        [user.username, "bulk-edit", None, f"Edited {len(payload.ids)} flights: {', '.join(set_parts)}"]
+    )
+    return len(payload.ids)
+
+@router.get("/audit-log", status_code=200)
+async def get_audit_log(limit: int = 50, user: User = Depends(get_current_user)) -> list[dict]:
+    res = database.execute_read_query(
+        "SELECT id, timestamp, username, action, flight_id, details FROM audit_logs WHERE username = ? ORDER BY timestamp DESC LIMIT ?;",
+        [user.username, limit]
+    )
+    return [{"id": r[0], "timestamp": r[1], "username": r[2], "action": r[3], "flightId": r[4], "details": r[5]} for r in res]
+
+@router.post("/{flight_id}/photo", status_code=201)
+async def upload_photo(flight_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user)):
+    await check_flight_authorization(flight_id, user)
+
+    allowed = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    if file.content_type not in allowed:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, WebP, and GIF images are allowed")
+
+    photo_dir = os.path.join(DATA_PATH, "photos", str(flight_id))
+    os.makedirs(photo_dir, exist_ok=True)
+
+    # Remove existing photo if any
+    for existing in os.listdir(photo_dir):
+        os.remove(os.path.join(photo_dir, existing))
+
+    ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else "jpg"
+    photo_path = os.path.join(photo_dir, f"photo.{ext}")
+
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:  # 10MB limit
+        raise HTTPException(status_code=400, detail="File too large (max 10MB)")
+
+    with open(photo_path, "wb") as f:
+        f.write(contents)
+
+    return {"path": f"/flights/{flight_id}/photo"}
+
+@router.get("/photos/all", status_code=200)
+async def get_all_photos(user: User = Depends(get_current_user)) -> list[dict]:
+    """List all flight IDs that have photos for the current user."""
+    photo_base = os.path.join(DATA_PATH, "photos")
+    if not os.path.isdir(photo_base):
+        return []
+
+    flight_ids = []
+    for dirname in os.listdir(photo_base):
+        try:
+            fid = int(dirname)
+            photo_dir = os.path.join(photo_base, dirname)
+            if os.listdir(photo_dir):
+                flight_ids.append(fid)
+        except ValueError:
+            continue
+
+    if not flight_ids:
+        return []
+
+    # Filter to only this user's flights and get basic info
+    placeholders = ",".join(["?"] * len(flight_ids))
+    res = database.execute_read_query(f"""
+        SELECT f.id, f.date, f.origin, f.destination
+        FROM flights f
+        WHERE f.id IN ({placeholders}) AND f.username = ?
+        ORDER BY f.date DESC;
+    """, flight_ids + [user.username])
+
+    return [{"id": r[0], "date": r[1], "origin": r[2], "destination": r[3]} for r in res]
+
+@router.get("/{flight_id}/photo", status_code=200)
+async def get_photo(flight_id: int):
+    photo_dir = os.path.join(DATA_PATH, "photos", str(flight_id))
+    if not os.path.isdir(photo_dir):
+        raise HTTPException(status_code=404, detail="No photo found")
+
+    files = os.listdir(photo_dir)
+    if not files:
+        raise HTTPException(status_code=404, detail="No photo found")
+
+    photo_path = os.path.join(photo_dir, files[0])
+    return FileResponse(photo_path)
+
+@router.delete("/{flight_id}/photo", status_code=200)
+async def delete_photo(flight_id: int, user: User = Depends(get_current_user)):
+    await check_flight_authorization(flight_id, user)
+
+    photo_dir = os.path.join(DATA_PATH, "photos", str(flight_id))
+    if os.path.isdir(photo_dir):
+        for f in os.listdir(photo_dir):
+            os.remove(os.path.join(photo_dir, f))
+        os.rmdir(photo_dir)
+
+    return {"status": "ok"}
 
 @router.get("", status_code=200)
 async def get_flights(id: int|None = None,

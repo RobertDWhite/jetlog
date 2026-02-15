@@ -2,7 +2,7 @@ from server.database import database
 from server.models import User
 from server.auth.users import get_current_user
 
-from models import CustomModel
+from server.models import CustomModel
 from fastapi import APIRouter, Depends
 from pathlib import Path
 import json
@@ -17,6 +17,9 @@ class Coord(CustomModel):
     latitude: float
     longitude: float
     frequency: int
+    icao: str|None = None
+    iata: str|None = None
+    name: str|None = None
 
     def __eq__(self, other) -> bool:
         return self.latitude == other.latitude and self.longitude == other.longitude
@@ -25,6 +28,8 @@ class Trajectory(CustomModel):
     first: Coord
     second: Coord
     frequency: int
+    origin_icao: str|None = None
+    dest_icao: str|None = None
 
     def __eq__(self, other) -> bool:
         if self.first == other.first and self.second == other.second:
@@ -76,20 +81,26 @@ async def get_world_geojson(visited: bool = False, user: User = Depends(get_curr
     return geojson
 
 @router.get("/decorations", status_code=200)
-async def get_flights_decorations(flight_id: int|None = None, user: User = Depends(get_current_user)) -> tuple[list[Trajectory], list[Coord]]:
+async def get_flights_decorations(flight_id: int|None = None, username: str|None = None, user: User = Depends(get_current_user)) -> tuple[list[Trajectory], list[Coord]]:
+    return await get_decorations(flight_id=flight_id, username=username, user=user)
+
+async def get_decorations(flight_id: int|None = None, username: str|None = None, user: User = None) -> tuple[list[Trajectory], list[Coord]]:
+    filter_username = username if username else user.username
     flight_filter = f" AND f.id = {flight_id}" if flight_id != None else ""
 
     query = f"""
         SELECT o.latitude, o.longitude,
                d.latitude, d.longitude,
-               f.connection
+               f.connection,
+               o.icao, o.iata, o.name,
+               d.icao, d.iata, d.name
         FROM flights f
         JOIN airports o ON UPPER(f.origin) = o.icao
         JOIN airports d ON UPPER(f.destination) = d.icao
         WHERE username = ?
         {flight_filter};"""
 
-    res = database.execute_read_query(query, [user.username]);
+    res = database.execute_read_query(query, [filter_username]);
 
     lines: list[Trajectory] = []
     coordinates: list[Coord] = []
@@ -101,14 +112,19 @@ async def get_flights_decorations(flight_id: int|None = None, user: User = Depen
         has_connection = row[4] != None
 
         origin_data = row[:2]
-        origin_coords = Coord.from_database(origin_data, explicit={'frequency': 1})
+        origin_coords = Coord.from_database(origin_data, explicit={
+            'frequency': 1, 'icao': row[5], 'iata': row[6], 'name': row[7]
+        })
         origin_coords = Coord.model_validate(origin_coords)
 
-        destination_coords= row[2:4]
-        destination_coords = Coord.from_database(destination_coords, explicit={'frequency': 1})
+        destination_data = row[2:4]
+        destination_coords = Coord.from_database(destination_data, explicit={
+            'frequency': 1, 'icao': row[8], 'iata': row[9], 'name': row[10]
+        })
         destination_coords = Coord.model_validate(destination_coords)
 
-        line = Trajectory(first=origin_coords, second=destination_coords, frequency=1)
+        line = Trajectory(first=origin_coords, second=destination_coords, frequency=1,
+                         origin_icao=row[5], dest_icao=row[8])
 
         # compute marker frequencies
         found_origin = False

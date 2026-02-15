@@ -17,6 +17,7 @@ class UserPatch(CustomModel):
     username: str|None = None
     password: str|None = None
     is_admin: bool|None = None
+    public_profile: bool|None = None
 
 ALGORITHM = "HS256"
 
@@ -56,6 +57,28 @@ async def get_user_from_token(token: str = Depends(oauth2_scheme)) -> User:
         raise credentials_exception
 
     return user
+
+@router.get("/public/{username}")
+async def get_public_profile(username: str):
+    """Public profile - returns basic stats if user has public_profile enabled."""
+    user = get_user(username)
+    if not user or not user.public_profile:
+        raise HTTPException(status_code=404, detail="Profile not found or not public")
+
+    # Return basic stats
+    from server.routers.statistics import get_statistics
+    stats = await get_statistics(metric=True, username=username, user=user)
+
+    # Return decorations for map
+    from server.routers.geography import get_decorations
+    deco = await get_decorations(username=username, user=user)
+
+    return {
+        "username": user.username,
+        "memberSince": str(user.created_on),
+        "stats": stats,
+        "decorations": deco,
+    }
 
 @router.get("/me")
 async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)) -> User:

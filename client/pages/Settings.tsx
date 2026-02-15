@@ -222,6 +222,19 @@ export default function Settings() {
             API.post("/exporting/ical", {}, true);
         } else if(exportType === "myflightradar24") {
             API.post("/exporting/myflightradar24", {}, true);
+        } else if(exportType === "kml") {
+            API.post("/exporting/kml", {}, true);
+        } else if(exportType === "pdf") {
+            // PDF export returns HTML — post via fetch and open in new tab
+            const token = sessionStorage.getItem('token');
+            fetch(`${BASE_URL}/api/exporting/pdf`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: '{}'
+            }).then(r => r.text()).then(html => {
+                const w = window.open('', '_blank');
+                if (w) { w.document.write(html); w.document.close(); }
+            });
         }
     }
 
@@ -332,6 +345,10 @@ export default function Settings() {
                 <Button text="Export to iCal" onClick={() => handleExportClick("ical")}/>
                 <br />
                 <Button text="Export for MyFlightRadar24" onClick={() => handleExportClick("myflightradar24")}/>
+                <br />
+                <Button text="Export KML (Google Earth)" onClick={() => handleExportClick("kml")}/>
+                <br />
+                <Button text="Print Flight Log (PDF)" onClick={() => handleExportClick("pdf")}/>
                 { FR24_CONFIGURED &&
                     <>
                         <br />
@@ -397,7 +414,20 @@ export default function Settings() {
                     <Checkbox name="restrictWorldMap"
                                 checked={options.restrictWorldMap === "true"}
                                 onChange={changeOption} />
+                </div>
 
+                <div className="flex justify-between">
+                    <Label text="Dark mode" />
+                    <Checkbox name="darkMode"
+                                checked={options.darkMode === "true"}
+                                onChange={(e) => {
+                                    changeOption(e);
+                                    if (e.target.checked) {
+                                        document.documentElement.classList.add('dark');
+                                    } else {
+                                        document.documentElement.classList.remove('dark');
+                                    }
+                                }} />
                 </div>
 
                 <hr />
@@ -451,7 +481,25 @@ export default function Settings() {
                 { user === undefined ?
                     <p>Loading...</p>
                     :
+                    <>
                     <UserInfo user={user} isSelf/>
+                    <hr className="my-3" />
+                    <Subheading text="Public Profile" />
+                    <div className="flex justify-between items-center">
+                        <Label text="Enable public profile" />
+                        <Checkbox name="publicProfile"
+                                  checked={user.publicProfile || false}
+                                  onChange={async (e) => {
+                                      await API.patch(`/users/${user.username}`, { publicProfile: e.target.checked });
+                                      setUser({ ...user, publicProfile: e.target.checked } as any);
+                                  }} />
+                    </div>
+                    {user.publicProfile && (
+                        <p className="text-sm text-gray-500 mt-1">
+                            Share: <a href={`${BASE_URL}/profile/${user.username}`} className="text-primary-500 underline">{window.location.origin}{BASE_URL}/profile/{user.username}</a>
+                        </p>
+                    )}
+                    </>
                 }
             </div>
 
@@ -494,7 +542,52 @@ export default function Settings() {
                         </div>
                     </>
             }
+
+            <AuditLog />
         </div>
     </>
+    );
+}
+
+function AuditLog() {
+    const [logs, setLogs] = useState<any[]>();
+    const [expanded, setExpanded] = useState(false);
+
+    useEffect(() => {
+        if (expanded && !logs) {
+            API.get('/flights/audit-log', { limit: 50 })
+            .then((data: any[]) => setLogs(data));
+        }
+    }, [expanded]);
+
+    return (
+        <div className="container">
+            <div className="flex justify-between items-center cursor-pointer" onClick={() => setExpanded(!expanded)}>
+                <Subheading text="Activity Log" />
+                <span className="text-gray-500">{expanded ? '\u25B2' : '\u25BC'}</span>
+            </div>
+            {expanded && (
+                logs ? (
+                    logs.length === 0 ? (
+                        <p className="text-sm text-gray-500 dark:text-gray-400">No activity recorded yet.</p>
+                    ) : (
+                        <div className="max-h-64 overflow-y-auto text-sm space-y-1">
+                            {logs.map(log => (
+                                <div key={log.id} className="flex gap-3 py-1 border-b border-gray-200 dark:border-gray-700">
+                                    <span className="text-gray-400 dark:text-gray-500 whitespace-nowrap">{log.timestamp.replace('T', ' ').substring(0, 19)}</span>
+                                    <span className={`font-medium whitespace-nowrap ${
+                                        log.action === 'create' ? 'text-green-600 dark:text-green-400' :
+                                        log.action === 'edit' ? 'text-blue-600 dark:text-blue-400' :
+                                        'text-red-600 dark:text-red-400'
+                                    }`}>{log.action}</span>
+                                    {log.flightId && <span className="text-gray-500 dark:text-gray-400">#{log.flightId}</span>}
+                                    <span className="text-gray-600 dark:text-gray-300 truncate">{log.details || ''}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )
+                ) : <p className="text-sm text-gray-500">Loading...</p>
+            )}
+        </div>
     );
 }

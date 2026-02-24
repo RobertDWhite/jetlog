@@ -45,7 +45,23 @@ class APIClass {
                 }
             }
             else {
-                const errorData = err.response.data; const message = typeof errorData === 'object' && errorData.detail ? errorData.detail : JSON.stringify(errorData); showToast('Error: ' + message, 'error');
+                const errorData = err.response.data;
+
+                if (typeof errorData === 'object' && errorData.detail) {
+                    if (Array.isArray(errorData.detail)) {
+                        errorData.detail.forEach(err =>  {
+                            const message = (err && err.msg) ? String(err.msg) : JSON.stringify(err);
+                            showToast('Error: ' + message, 'error');
+                        })
+                    } else {
+                        const message = errorData.detail;
+                        showToast('Error: ' + message, 'error');
+                    }
+                } else {
+                    const message = JSON.stringify(errorData);
+                    showToast('Error: ' + message, 'error');
+                }
+
             }
         }
         else if (err.request) {

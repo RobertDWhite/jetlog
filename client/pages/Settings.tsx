@@ -174,7 +174,7 @@ export default function Settings() {
 
         API.post("/flights/airlines_from_callsigns", {})
         .then((data: object) => {
-            showToast(`Connections computed: ${data["amountUpdated"]} updated, ${data["amountSkipped"]} skipped`, 'success');
+            showToast(`Airlines fetched: ${data["amountUpdated"]} updated, ${data["amountSkipped"]} skipped`, 'success');
             setDisableJobs(false);
         })
     }

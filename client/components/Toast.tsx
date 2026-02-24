@@ -62,8 +62,8 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
             className={`${bgColor} text-white px-4 py-3 rounded-md shadow-lg mb-2 flex items-start gap-2 max-w-sm animate-slide-in`}
             role="alert"
         >
-            <span className="font-bold text-lg leading-none">{icon}</span>
-            <span className="flex-1 break-words whitespace-pre-wrap">{toast.message}</span>
+            <p className="font-bold text-lg leading-none">{icon}</p>
+            <p className="flex-1 break-words whitespace-pre-wrap">{toast.message}</p>
             <button
                 onClick={() => onRemove(toast.id)}
                 className="text-white hover:text-gray-200 font-bold text-lg leading-none ml-2"

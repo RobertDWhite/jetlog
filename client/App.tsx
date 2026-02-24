@@ -11,10 +11,12 @@ import Statistics from './pages/Statistics';
 import Settings from './pages/Settings';
 
 import Navbar from './components/Navbar';
+import { ToastProvider } from './components/Toast';
 
 export function App() {
     return (
-        <BrowserRouter basename={BASE_URL}>
+        <ToastProvider>
+            <BrowserRouter basename={BASE_URL}>
             <Routes>
                 <Route path="/login" element={<Login />} />
                 <Route element={
@@ -32,5 +34,6 @@ export function App() {
                 </Route>
             </Routes>
         </BrowserRouter>
+        </ToastProvider>
     );
 }

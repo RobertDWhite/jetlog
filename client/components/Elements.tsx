@@ -97,6 +97,7 @@ interface InputProps {
     type: "text"|"password"|"number"|"date"|"time"|"file";
     name?: string;
     defaultValue?: string;
+    value?: string;
     maxLength?: number;
     onChange?: ((event: ChangeEvent<HTMLInputElement>) => any)|null;
     required?: boolean;
@@ -105,6 +106,7 @@ interface InputProps {
 export function Input({ type,
                         name,
                         defaultValue,
+                        value,
                         maxLength,
                         onChange = null,
                         required = false,
@@ -116,7 +118,7 @@ export function Input({ type,
                 type={type}
                 accept={type == "file" ? ".csv,.db" : undefined}
                 name={name}
-                defaultValue={defaultValue}
+                {...(value !== undefined ? { value } : { defaultValue })}
                 maxLength={maxLength}
                 min={type == "number" ? 0 : undefined}
                 onChange={onChange ? onChange : () => {}}
@@ -199,15 +201,16 @@ interface SelectProps {
     name?: string;
     options: OptionProps[];
     defaultValue?: string;
+    value?: string;
     onChange?: ((event: ChangeEvent<HTMLSelectElement>) => any)|null;
 }
-export function Select({name, options, defaultValue, onChange = null}: SelectProps) {
+export function Select({name, options, defaultValue, value, onChange = null}: SelectProps) {
     return (
         <select className="px-1 py-0.5 mb-4 bg-white rounded-none outline-none font-mono box-border
                 border-b-2 border-gray-200 focus:border-primary-400
                 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600"
                 name={name}
-                defaultValue={defaultValue}
+                {...(value !== undefined ? { value } : { defaultValue })}
                 onChange={onChange ? onChange : () => {}}>
             { options.map((option) => (
                 <Option text={option.text} value={option.value}/>

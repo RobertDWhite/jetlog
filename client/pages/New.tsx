@@ -245,10 +245,14 @@ export default function New() {
             airline: prevLeg.airline,
             flightNumber: '',
             seat: prevLeg.seat,
+            seatNumber: '',
             aircraftSide: prevLeg.aircraftSide,
             ticketClass: prevLeg.ticketClass,
             purpose: prevLeg.purpose,
             notes: '',
+            cost: '',
+            currency: prevLeg.currency || 'USD',
+            rating: '',
         }]);
     };
 
@@ -570,13 +574,13 @@ export default function New() {
                                         <Label text="Cost" />
                                         <Input type="number" name={`cost_${i}`}
                                                placeholder="0.00"
-                                               defaultValue={leg.cost}
+                                               value={leg.cost}
                                                onChange={(e) => updateLeg(i, 'cost', e.target.value)} />
                                     </div>
                                     <div>
                                         <Label text="Currency" />
                                         <Select name={`currency_${i}`}
-                                                defaultValue={leg.currency}
+                                                value={leg.currency}
                                                 onChange={(e) => updateLeg(i, 'currency', e.target.value)}
                                                 options={[
                                                     { text: "USD", value: "USD" },
@@ -710,22 +714,59 @@ export default function New() {
 
                 {isMultiLeg && (
                     <div className="px-4 pb-2">
-                        <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3 flex flex-wrap gap-4 text-sm">
-                            <span className="font-medium">{legs.length} legs</span>
-                            {legs[0].origin && legs[legs.length - 1].destination && (
-                                <span className="text-gray-600 dark:text-gray-400">
-                                    {legs[0].origin.iata || legs[0].origin.icao}
-                                    {' \u2192 '}
-                                    {legs.slice(1, -1).map(l => l.origin?.iata || l.origin?.icao || '?').join(' \u2192 ')}
-                                    {legs.length > 2 ? ' \u2192 ' : ''}
-                                    {legs[legs.length - 1].destination.iata || legs[legs.length - 1].destination.icao}
-                                </span>
-                            )}
-                            {legs[0].date && legs[legs.length - 1].date && legs[0].date !== legs[legs.length - 1].date && (
-                                <span className="text-gray-500 dark:text-gray-400">
-                                    {legs[0].date} to {legs[legs.length - 1].date}
-                                </span>
-                            )}
+                        <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3 space-y-3">
+                            <div className="flex flex-wrap gap-4 text-sm">
+                                <span className="font-medium">{legs.length} legs</span>
+                                {legs[0].origin && legs[legs.length - 1].destination && (
+                                    <span className="text-gray-600 dark:text-gray-400">
+                                        {legs[0].origin.iata || legs[0].origin.icao}
+                                        {' \u2192 '}
+                                        {legs.slice(1, -1).map(l => l.origin?.iata || l.origin?.icao || '?').join(' \u2192 ')}
+                                        {legs.length > 2 ? ' \u2192 ' : ''}
+                                        {legs[legs.length - 1].destination.iata || legs[legs.length - 1].destination.icao}
+                                    </span>
+                                )}
+                                {legs[0].date && legs[legs.length - 1].date && legs[0].date !== legs[legs.length - 1].date && (
+                                    <span className="text-gray-500 dark:text-gray-400">
+                                        {legs[0].date} to {legs[legs.length - 1].date}
+                                    </span>
+                                )}
+                            </div>
+                            <div className="border-t border-gray-300 dark:border-gray-600 pt-3">
+                                <label className="text-sm font-medium dark:text-gray-200">Split total ticket cost across all legs</label>
+                                <div className="grid grid-cols-3 gap-2 mt-1">
+                                    <Input type="number" name="_tripCost" placeholder="e.g. 1000" />
+                                    <Select name="_tripCurrency" options={[
+                                        { text: "USD", value: "USD" },
+                                        { text: "EUR", value: "EUR" },
+                                        { text: "GBP", value: "GBP" },
+                                        { text: "CAD", value: "CAD" },
+                                        { text: "AUD", value: "AUD" },
+                                        { text: "JPY", value: "JPY" },
+                                        { text: "CHF", value: "CHF" },
+                                        { text: "Other", value: "OTHER" },
+                                    ]} />
+                                    <Button text="Split" onClick={() => {
+                                        const costInput = document.querySelector('input[name="_tripCost"]') as HTMLInputElement;
+                                        const currencySelect = document.querySelector('select[name="_tripCurrency"]') as HTMLSelectElement;
+                                        const total = parseFloat(costInput?.value);
+                                        if (!total || total <= 0) return;
+                                        const currency = currencySelect?.value || 'USD';
+                                        const perLeg = Math.round(total / legs.length * 100) / 100;
+                                        const remainder = Math.round((total - perLeg * legs.length) * 100) / 100;
+                                        setLegs(prev => prev.map((leg, i) => ({
+                                            ...leg,
+                                            cost: (i === 0 ? (perLeg + remainder).toFixed(2) : perLeg.toFixed(2)),
+                                            currency,
+                                        })));
+                                    }} />
+                                </div>
+                                {legs.some(l => l.cost) && (
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                        Per leg: {legs.map((l, i) => `Leg ${i+1}: ${l.currency || ''} ${l.cost || '0'}`).join(' / ')}
+                                    </p>
+                                )}
+                            </div>
                         </div>
                     </div>
                 )}

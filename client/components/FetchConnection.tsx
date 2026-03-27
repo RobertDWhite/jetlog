@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react';
 import { useState } from 'react';
 import { Button } from '../components/Elements'
-import { useToast } from '../components/Toast';
 import API from '../api';
 import { Flight } from '../models';
 
@@ -16,8 +15,7 @@ interface FetchConnectionProps {
 
 export default function FetchConnection({ name, date, origin, destination, value, onFetched }: FetchConnectionProps) {
     const [searched, setSearched] = useState<boolean>(false);
-    const [connectionFlight, setConnectionFlight] = useState<Flight>();
-    const { showToast } = useToast(); // only needed for printing flight info
+    const [connectionFlight, setConnectionFlight] = useState<Flight>(); // only needed for printing flight info
 
     // if value is initially set, we must
     // find matching flight (only first render)
@@ -71,14 +69,14 @@ export default function FetchConnection({ name, date, origin, destination, value
                                           ${ data.map((f: Flight, i) => `\n[${i}] ${createInstance(f).toString()}`) }`);
 
                 if (!choice) {
-                    showToast('Your input must be a valid index!', 'error');
+                    alert("Your input must be a valid index!");
                     return;
                 }
 
                 const parsed = Number.parseInt(choice);
 
                 if (!Number.isInteger(parsed) || parsed < 0 || parsed > data.length - 1) {
-                    showToast('Your input must be a valid index!', 'error');
+                    alert("Your input must be a valid index!");
                     return;
                 }
 

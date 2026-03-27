@@ -82,12 +82,13 @@ class CustomModel(CamelableModel):
         return True
 
 class User(CustomModel):
-    id:            int
-    username:      str
-    password_hash: str
-    is_admin:      bool
-    last_login:    datetime.datetime|None
-    created_on:    datetime.datetime
+    id:              int
+    username:        str
+    password_hash:   str
+    is_admin:        bool
+    public_profile:  bool = False
+    last_login:      datetime.datetime|None
+    created_on:      datetime.datetime
 
 class SeatType(str, Enum):
     WINDOW = "window"
@@ -179,6 +180,7 @@ class FlightModel(CustomModel):
     arrival_time:     str|None = None
     arrival_date:     datetime.date|None = None
     seat:             SeatType|None = None
+    seat_number:      str|None = None
     aircraft_side:    AircraftSide|None = None
     ticket_class:     ClassType|None = None
     purpose:          FlightPurpose|None = None
@@ -189,6 +191,9 @@ class FlightModel(CustomModel):
     tail_number:      str|None = None
     flight_number:    str|None = None
     notes:            str|None = None
+    cost:             float|None = None
+    currency:         str|None = None
+    rating:           int|None = None
     connection:       int|None = None
 
     @field_validator('origin', 'destination')
@@ -266,3 +271,23 @@ class StatisticsModel(CustomModel):
     seat_frequency:         dict
     ticket_class_frequency: dict
     most_common_airlines:   dict
+    flights_by_month:       list = []
+    distance_by_month:      list = []
+    top_routes:             list = []
+    top_aircraft:           list = []
+    records:                dict = {}
+    total_cost:             dict = {}
+    cost_per_km:            dict = {}
+    avg_cost_by_class:      list = []
+    total_co2_kg:           float = 0
+    avg_speed_kmh:          float = 0
+    unique_timezones:       int = 0
+    continent_completion:   list = []
+    flights_by_day:         list = []
+    avg_rating:             float = 0
+    rated_flights:          int = 0
+    rating_by_airline:      list = []
+    rating_distribution:    dict = {}
+    side_frequency:         dict = {}
+    layover_stats:          dict = {}
+    redeye_count:           int = 0

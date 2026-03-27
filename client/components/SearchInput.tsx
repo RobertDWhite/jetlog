@@ -54,9 +54,9 @@ export default function SearchInput({ name, type, value, onSelect }: SearchInput
 
         <input type="hidden" name={name} value={value?.icao}/>
         { subjectsData.length > 0 &&
-        <ul className="-mt-4 mb-4 border-x-2 border-b-2 border-gray-200">
+        <ul className="-mt-4 mb-4 border-x-2 border-b-2 border-gray-200 dark:border-gray-600">
             { subjectsData.map((s: Airport|Airline) => (
-            <li className="py-1 px-2 even:bg-gray-100 cursor-pointer hover:bg-gray-200"
+            <li className="py-1 px-2 even:bg-gray-100 cursor-pointer hover:bg-gray-200 dark:even:bg-gray-700 dark:hover:bg-gray-600"
                 value={s.icao} 
                 onClick={() => {
                     setSubjectsData([]); 

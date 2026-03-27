@@ -1,12 +1,12 @@
 import axios, {Axios} from 'axios';
 import TokenStorage from './storage/tokenStorage';
-import { showToast } from './components/Toast';
 
 const config = await fetch('./config').then((response) => response.json())
                                       .catch(() => ({ BASE_URL: '/', ENABLE_EXTERNAL_APIS: true }));
 
 export const BASE_URL = config.BASE_URL == '/' ? '' : config.BASE_URL;
 export const ENABLE_EXTERNAL_APIS = config.ENABLE_EXTERNAL_APIS;
+export const FR24_CONFIGURED = config.FR24_CONFIGURED;
 
 // TODO improve this because there's a lot of repetition (get, post, delete are pretty much exactly the same)
 // perhaps one method for each endpoint? i.e. API.getFlights(), ...
@@ -45,30 +45,14 @@ class APIClass {
                 }
             }
             else {
-                const errorData = err.response.data;
-
-                if (typeof errorData === 'object' && errorData.detail) {
-                    if (Array.isArray(errorData.detail)) {
-                        errorData.detail.forEach(err =>  {
-                            const message = (err && err.msg) ? String(err.msg) : JSON.stringify(err);
-                            showToast('Error: ' + message, 'error');
-                        })
-                    } else {
-                        const message = errorData.detail;
-                        showToast('Error: ' + message, 'error');
-                    }
-                } else {
-                    const message = JSON.stringify(errorData);
-                    showToast('Error: ' + message, 'error');
-                }
-
+                alert("Bad response: " + JSON.stringify(err.response.data));
             }
         }
         else if (err.request) {
-            showToast('Network error: Unable to reach server', 'error');
+            alert("Bad request: " + JSON.stringify(err.request));
         }
         else {
-            showToast('Unknown error: ' + err.message, 'error');
+            alert("Unknown error: " + JSON.stringify(err));
         }
     }
 
@@ -97,12 +81,12 @@ class APIClass {
         }
     }
 
-    async post(endpoint: string, data: Object, downloadResponse: boolean = false) {
+    async post(endpoint: string, data: Object, downloadResponse: boolean = false, timeout?: number) {
         endpoint = endpoint.trim();
 
         try {
             if(!downloadResponse) {
-                const res = await this.client.post(endpoint, data);
+                const res = await this.client.post(endpoint, data, timeout ? { timeout } : {});
                 return res.data;
             } else {
                 this.client.post(endpoint, data)

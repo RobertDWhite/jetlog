@@ -1,6 +1,6 @@
-from server.routers import flights, airports, airlines, statistics, geography, importing, exporting
+from server.routers import flights, airports, airlines, statistics, geography, importing, exporting, fr24_sync
 from server.auth import users, auth
-from server.environment import ENABLE_EXTERNAL_APIS
+from server.environment import ENABLE_EXTERNAL_APIS, FR24_EMAIL, FR24_PASSWORD
 from fastapi import FastAPI, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -29,6 +29,7 @@ app.include_router(statistics.router, prefix="/api", dependencies=auth_dependenc
 app.include_router(geography.router, prefix="/api", dependencies=auth_dependency)
 app.include_router(importing.router, prefix="/api", dependencies=auth_dependency)
 app.include_router(exporting.router, prefix="/api", dependencies=auth_dependency)
+app.include_router(fr24_sync.router, prefix="/api", dependencies=auth_dependency)
 
 app.include_router(users.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
@@ -37,7 +38,8 @@ app.include_router(auth.router, prefix="/api")
 async def get_config(request: Request):
     config = {
             "BASE_URL": request.scope.get("root_path", "/"),
-            "ENABLE_EXTERNAL_APIS": ENABLE_EXTERNAL_APIS
+            "ENABLE_EXTERNAL_APIS": ENABLE_EXTERNAL_APIS,
+            "FR24_CONFIGURED": bool(FR24_EMAIL and FR24_PASSWORD and ENABLE_EXTERNAL_APIS)
     }
     return JSONResponse(config)
 

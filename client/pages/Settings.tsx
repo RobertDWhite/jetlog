@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import API, { ENABLE_EXTERNAL_APIS } from '../api';
+import API, { BASE_URL, ENABLE_EXTERNAL_APIS, FR24_CONFIGURED } from '../api';
 import { Heading, Label, Input, Checkbox, Subheading, Button, Dialog, Select } from '../components/Elements'
-import { useToast } from '../components/Toast';
 import ConfigStorage, { ConfigInterface } from '../storage/configStorage';
 import { User } from '../models';
 import TokenStorage from '../storage/tokenStorage';
@@ -93,9 +92,11 @@ export default function Settings() {
     const [options, setOptions] = useState<ConfigInterface>(ConfigStorage.getAllSettings())
     const [user, setUser] = useState<User>();
     const [allUsers, setAllUsers] = useState<User[]>([]);
-    const [disableJobs, setDisableJobs] = useState(false);
+    const [runningUtility, setRunningUtility] = useState<string | null>(null);
+    const [utilityLog, setUtilityLog] = useState<string[]>([]);
+    const [utilityProgress, setUtilityProgress] = useState<{current: number, total: number} | null>(null);
+    const utilityLogEndRef = useRef<HTMLDivElement>(null);
     const navigate = useNavigate();
-    const { showToast } = useToast();
 
     useEffect(() => {
         API.get("/users/me")
@@ -136,11 +137,104 @@ export default function Settings() {
         }
     }
 
+    const [syncingFR24, setSyncingFR24] = useState(false);
+    const [fr24Log, setFR24Log] = useState<string[]>([]);
+    const [fr24Progress, setFR24Progress] = useState<{current: number, total: number} | null>(null);
+    const logEndRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [fr24Log]);
+
+    useEffect(() => {
+        utilityLogEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [utilityLog]);
+
+    const syncToFR24 = async () => {
+        setSyncingFR24(true);
+        setFR24Log([]);
+        setFR24Progress(null);
+
+        try {
+            const token = TokenStorage.getToken();
+            const res = await fetch(BASE_URL + "/api/fr24/sync", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${token}`,
+                    "Content-Type": "application/json"
+                },
+                body: "{}"
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                setFR24Log(prev => [...prev, `Error: ${err.detail || res.statusText}`]);
+                setSyncingFR24(false);
+                return;
+            }
+
+            const reader = res.body!.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+
+                for (const line of lines) {
+                    if (!line.startsWith("data: ")) continue;
+                    const data = JSON.parse(line.slice(6));
+
+                    if (data.type === "start") {
+                        setFR24Progress({ current: 0, total: data.total });
+                        setFR24Log(prev => [...prev, `Starting sync of ${data.total} flights...`]);
+                    } else if (data.type === "login") {
+                        setFR24Log(prev => [...prev, data.message]);
+                    } else if (data.type === "progress") {
+                        setFR24Progress({ current: data.current, total: data.total });
+                        const icon = data.status === "ok" ? "+" : "!";
+                        const msg = `[${icon}] (${data.current}/${data.total}) ${data.flight}` +
+                                    (data.error ? ` — ${data.error}` : "");
+                        setFR24Log(prev => [...prev, msg]);
+                    } else if (data.type === "done") {
+                        setFR24Log(prev => [...prev, `Done: ${data.synced} synced, ${data.failed} failed`]);
+                        setFR24Progress(null);
+                    } else if (data.type === "error") {
+                        setFR24Log(prev => [...prev, `Error: ${data.message}`]);
+                    }
+                }
+            }
+        } catch (err) {
+            setFR24Log(prev => [...prev, `Connection error: ${err}`]);
+        } finally {
+            setSyncingFR24(false);
+        }
+    }
+
     const handleExportClick = (exportType: string) => {
         if(exportType === "csv") {
             API.post("/exporting/csv", {}, true);
         } else if(exportType === "ical") {
             API.post("/exporting/ical", {}, true);
+        } else if(exportType === "myflightradar24") {
+            API.post("/exporting/myflightradar24", {}, true);
+        } else if(exportType === "kml") {
+            API.post("/exporting/kml", {}, true);
+        } else if(exportType === "pdf") {
+            // PDF export returns HTML — post via fetch and open in new tab
+            const token = sessionStorage.getItem('token');
+            fetch(`${BASE_URL}/api/exporting/pdf`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: '{}'
+            }).then(r => r.text()).then(html => {
+                const w = window.open('', '_blank');
+                if (w) { w.document.write(html); w.document.close(); }
+            });
         }
     }
 
@@ -159,24 +253,65 @@ export default function Settings() {
         window.location.reload();
     }
 
-    const computeConnections = async () => {
-        setDisableJobs(true);
+    const runUtility = async (endpoint: string, label: string) => {
+        setRunningUtility(label);
+        setUtilityLog([]);
+        setUtilityProgress(null);
 
-        API.post("/flights/connections", {})
-        .then((data: object) => {
-            showToast(`Connections computed: ${data["amountUpdated"]} updated, ${data["amountSkipped"]} skipped`, 'success');
-            setDisableJobs(false);
-        });
-    }
+        try {
+            const token = TokenStorage.getToken();
+            const res = await fetch(BASE_URL + "/api" + endpoint, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${token}`,
+                    "Content-Type": "application/json"
+                },
+                body: "{}"
+            });
 
-    const fetchAirlinesFromCallsigns = async () => {
-        setDisableJobs(true);
+            if (!res.ok) {
+                const err = await res.json();
+                setUtilityLog(prev => [...prev, `Error: ${err.detail || res.statusText}`]);
+                setRunningUtility(null);
+                return;
+            }
 
-        API.post("/flights/airlines_from_callsigns", {})
-        .then((data: object) => {
-            showToast(`Airlines fetched: ${data["amountUpdated"]} updated, ${data["amountSkipped"]} skipped`, 'success');
-            setDisableJobs(false);
-        })
+            const reader = res.body!.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+
+                for (const line of lines) {
+                    if (!line.startsWith("data: ")) continue;
+                    const data = JSON.parse(line.slice(6));
+
+                    if (data.type === "start") {
+                        setUtilityProgress({ current: 0, total: data.total });
+                        setUtilityLog(prev => [...prev, `Starting ${label} (${data.total} items)...`]);
+                    } else if (data.type === "progress") {
+                        setUtilityProgress({ current: data.current, total: data.total });
+                        const icon = data.status === "ok" ? "+" : "!";
+                        const msg = `[${icon}] (${data.current}/${data.total}) ${data.item}` +
+                                    (data.error ? ` — ${data.error}` : "");
+                        setUtilityLog(prev => [...prev, msg]);
+                    } else if (data.type === "done") {
+                        setUtilityLog(prev => [...prev, `Done: ${data.updated} updated, ${data.skipped} skipped`]);
+                        setUtilityProgress(null);
+                    }
+                }
+            }
+        } catch (err) {
+            setUtilityLog(prev => [...prev, `Connection error: ${err}`]);
+        } finally {
+            setRunningUtility(null);
+        }
     }
 
     return (
@@ -208,6 +343,32 @@ export default function Settings() {
                 <Button text="Export to CSV" onClick={() => handleExportClick("csv")}/>
                 <br />
                 <Button text="Export to iCal" onClick={() => handleExportClick("ical")}/>
+                <br />
+                <Button text="Export for MyFlightRadar24" onClick={() => handleExportClick("myflightradar24")}/>
+                <br />
+                <Button text="Export KML (Google Earth)" onClick={() => handleExportClick("kml")}/>
+                <br />
+                <Button text="Print Flight Log (PDF)" onClick={() => handleExportClick("pdf")}/>
+                { FR24_CONFIGURED &&
+                    <>
+                        <br />
+                        <Button text={syncingFR24 ? "Syncing..." : "Sync to MyFlightRadar24"} disabled={syncingFR24} onClick={syncToFR24}/>
+                        { fr24Progress &&
+                            <div className="w-full bg-gray-700 rounded mt-2 h-3">
+                                <div className="bg-blue-500 h-3 rounded transition-all"
+                                     style={{ width: `${(fr24Progress.current / fr24Progress.total) * 100}%` }} />
+                            </div>
+                        }
+                        { fr24Log.length > 0 &&
+                            <div className="mt-2 bg-gray-900 text-gray-200 text-xs font-mono p-2 rounded max-h-48 overflow-y-auto">
+                                {fr24Log.map((line, i) => (
+                                    <div key={i} className={line.startsWith("[!]") ? "text-red-400" : ""}>{line}</div>
+                                ))}
+                                <div ref={logEndRef} />
+                            </div>
+                        }
+                    </>
+                }
             </div>
 
             <div className="container">
@@ -253,7 +414,20 @@ export default function Settings() {
                     <Checkbox name="restrictWorldMap"
                                 checked={options.restrictWorldMap === "true"}
                                 onChange={changeOption} />
+                </div>
 
+                <div className="flex justify-between">
+                    <Label text="Dark mode" />
+                    <Checkbox name="darkMode"
+                                checked={options.darkMode === "true"}
+                                onChange={(e) => {
+                                    changeOption(e);
+                                    if (e.target.checked) {
+                                        document.documentElement.classList.add('dark');
+                                    } else {
+                                        document.documentElement.classList.remove('dark');
+                                    }
+                                }} />
                 </div>
 
                 <hr />
@@ -262,13 +436,41 @@ export default function Settings() {
 
                 <div className="flex justify-between">
                     <Label text="Compute flight connections" />
-                    <Button text="Run" disabled={disableJobs} onClick={computeConnections} />
+                    <Button text={runningUtility === "Compute connections" ? "Running..." : "Run"}
+                            disabled={runningUtility !== null}
+                            onClick={() => runUtility("/flights/connections", "Compute connections")} />
                 </div>
 
-                { ENABLE_EXTERNAL_APIS && 
+                { ENABLE_EXTERNAL_APIS &&
                     <div className="flex justify-between">
                         <Label text="Fetch missing airlines" />
-                        <Button text="Run" disabled={disableJobs} onClick={fetchAirlinesFromCallsigns} />
+                        <Button text={runningUtility === "Fetch airlines" ? "Running..." : "Run"}
+                                disabled={runningUtility !== null}
+                                onClick={() => runUtility("/flights/airlines_from_callsigns", "Fetch airlines")} />
+                    </div>
+                }
+
+                { ENABLE_EXTERNAL_APIS &&
+                    <div className="flex justify-between">
+                        <Label text="Enrich flight details" />
+                        <Button text={runningUtility === "Enrich flights" ? "Running..." : "Run"}
+                                disabled={runningUtility !== null}
+                                onClick={() => runUtility("/flights/enrich", "Enrich flights")} />
+                    </div>
+                }
+
+                { utilityProgress &&
+                    <div className="w-full bg-gray-700 rounded mt-2 h-3">
+                        <div className="bg-blue-500 h-3 rounded transition-all"
+                             style={{ width: `${(utilityProgress.current / utilityProgress.total) * 100}%` }} />
+                    </div>
+                }
+                { utilityLog.length > 0 &&
+                    <div className="mt-2 bg-gray-900 text-gray-200 text-xs font-mono p-2 rounded max-h-48 overflow-y-auto">
+                        {utilityLog.map((line, i) => (
+                            <div key={i} className={line.startsWith("[!]") ? "text-red-400" : ""}>{line}</div>
+                        ))}
+                        <div ref={utilityLogEndRef} />
                     </div>
                 }
             </div>
@@ -279,7 +481,25 @@ export default function Settings() {
                 { user === undefined ?
                     <p>Loading...</p>
                     :
+                    <>
                     <UserInfo user={user} isSelf/>
+                    <hr className="my-3" />
+                    <Subheading text="Public Profile" />
+                    <div className="flex justify-between items-center">
+                        <Label text="Enable public profile" />
+                        <Checkbox name="publicProfile"
+                                  checked={user.publicProfile || false}
+                                  onChange={async (e) => {
+                                      await API.patch(`/users/${user.username}`, { publicProfile: e.target.checked });
+                                      setUser({ ...user, publicProfile: e.target.checked } as any);
+                                  }} />
+                    </div>
+                    {user.publicProfile && (
+                        <p className="text-sm text-gray-500 mt-1">
+                            Share: <a href={`${BASE_URL}/profile/${user.username}`} className="text-primary-500 underline">{window.location.origin}{BASE_URL}/profile/{user.username}</a>
+                        </p>
+                    )}
+                    </>
                 }
             </div>
 
@@ -322,7 +542,52 @@ export default function Settings() {
                         </div>
                     </>
             }
+
+            <AuditLog />
         </div>
     </>
+    );
+}
+
+function AuditLog() {
+    const [logs, setLogs] = useState<any[]>();
+    const [expanded, setExpanded] = useState(false);
+
+    useEffect(() => {
+        if (expanded && !logs) {
+            API.get('/flights/audit-log', { limit: 50 })
+            .then((data: any[]) => setLogs(data));
+        }
+    }, [expanded]);
+
+    return (
+        <div className="container">
+            <div className="flex justify-between items-center cursor-pointer" onClick={() => setExpanded(!expanded)}>
+                <Subheading text="Activity Log" />
+                <span className="text-gray-500">{expanded ? '\u25B2' : '\u25BC'}</span>
+            </div>
+            {expanded && (
+                logs ? (
+                    logs.length === 0 ? (
+                        <p className="text-sm text-gray-500 dark:text-gray-400">No activity recorded yet.</p>
+                    ) : (
+                        <div className="max-h-64 overflow-y-auto text-sm space-y-1">
+                            {logs.map(log => (
+                                <div key={log.id} className="flex gap-3 py-1 border-b border-gray-200 dark:border-gray-700">
+                                    <span className="text-gray-400 dark:text-gray-500 whitespace-nowrap">{log.timestamp.replace('T', ' ').substring(0, 19)}</span>
+                                    <span className={`font-medium whitespace-nowrap ${
+                                        log.action === 'create' ? 'text-green-600 dark:text-green-400' :
+                                        log.action === 'edit' ? 'text-blue-600 dark:text-blue-400' :
+                                        'text-red-600 dark:text-red-400'
+                                    }`}>{log.action}</span>
+                                    {log.flightId && <span className="text-gray-500 dark:text-gray-400">#{log.flightId}</span>}
+                                    <span className="text-gray-600 dark:text-gray-300 truncate">{log.details || ''}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )
+                ) : <p className="text-sm text-gray-500">Loading...</p>
+            )}
+        </div>
     );
 }

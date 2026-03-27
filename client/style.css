@@ -5,6 +5,7 @@
 @layer components {
     .container {
         @apply p-4 mr-5 mb-4 grow border border-gray-400 rounded shadow-md;
+        @apply dark:bg-gray-800 dark:border-gray-600;
     }
 
     hr {
@@ -15,10 +16,3 @@
         @apply font-mono text-primary-500
     }
 }
-
-/* Toast animation */
-@keyframes slide-in {
-    from { transform: translateX(100%); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
-}
-.animate-slide-in { animation: slide-in 0.3s ease-out; }

@@ -55,30 +55,25 @@ def _update_tables():
     airports_db_path = Path(__file__).parent.parent.parent / 'data' / 'airports.db'
     airlines_db_path = Path(__file__).parent.parent.parent / 'data' / 'airlines.db'
 
-    with SessionLocal() as session:
-        # Drop and recreate airports and airlines tables
-        # We use raw connection for the ATTACH/DETACH and bulk copy
-        connection = session.connection()
-        raw_conn = connection.connection.dbapi_connection
+    # Use a direct sqlite3 connection to avoid SQLAlchemy transaction conflicts
+    # with ATTACH/DETACH commands. isolation_level=None for autocommit mode
+    # which is required for ATTACH/DETACH to work without transaction conflicts.
+    conn = sqlite3.connect(DB_PATH, isolation_level=None)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("DELETE FROM airports")
+        conn.execute("DELETE FROM airlines")
 
-        # Drop existing data
-        try:
-            session.execute(text("DELETE FROM airports"))
-            session.execute(text("DELETE FROM airlines"))
-        except Exception:
-            pass
+        conn.execute(f"ATTACH DATABASE '{airports_db_path}' AS ap")
+        conn.execute(f"ATTACH DATABASE '{airlines_db_path}' AS ar")
 
-        # Attach the bundled databases and copy data
-        raw_conn.execute(f"ATTACH '{airports_db_path}' AS ap")
-        raw_conn.execute(f"ATTACH '{airlines_db_path}' AS ar")
+        conn.execute("INSERT INTO main.airports SELECT * FROM ap.airports")
+        conn.execute("INSERT INTO main.airlines SELECT * FROM ar.airlines")
 
-        raw_conn.execute("INSERT INTO main.airports SELECT * FROM ap.airports")
-        raw_conn.execute("INSERT INTO main.airlines SELECT * FROM ar.airlines")
-
-        raw_conn.execute("DETACH ap")
-        raw_conn.execute("DETACH ar")
-
-        session.commit()
+        conn.execute("DETACH DATABASE ap")
+        conn.execute("DETACH DATABASE ar")
+    finally:
+        conn.close()
 
 
 def _patch_table_if_needed():

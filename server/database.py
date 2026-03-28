@@ -1,240 +1,68 @@
-import sqlite3
-import os.path
-from pathlib import Path
+"""Thin compatibility layer over SQLAlchemy sessions.
+
+This module preserves the `database` singleton import that many modules
+rely on, but delegates all work to SQLAlchemy sessions from server.db.session.
+The execute_query / execute_read_query methods accept raw SQL strings with
+'?' placeholders (sqlite3 style) which are converted to SQLAlchemy text() objects.
+"""
+
+from sqlalchemy import text
 from fastapi import HTTPException
 
-from server.models import FlightModel, User
-from server.environment import DATA_PATH
+from server.db.session import SessionLocal
 
-class Database():
-    connection: sqlite3.Connection
-    tables = {
-        "flights": {
-            "pragma": """
-                (
-                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username         TEXT NOT NULL DEFAULT admin,
-                    date             TEXT NOT NULL,
-                    origin           TEXT NOT NULL,
-                    destination      TEXT NOT NULL,
-                    departure_time   TEXT,
-                    arrival_time     TEXT,
-                    arrival_date     TEXT,
-                    seat             TEXT NULL CHECK(seat IN ('aisle', 'middle', 'window')),
-                    seat_number      TEXT,
-                    aircraft_side    TEXT NULL CHECK(aircraft_side IN ('left', 'right', 'center')),
-                    ticket_class     TEXT NULL CHECK(ticket_class IN ('private', 'first', 'business', 'economy+', 'economy')),
-                    purpose          TEXT NULL CHECK(purpose IN ('leisure', 'business', 'crew', 'other')),
-                    duration         INTEGER,
-                    distance         INTEGER,
-                    airplane         TEXT,
-                    airline          TEXT,
-                    tail_number      TEXT,
-                    flight_number    TEXT,
-                    notes            TEXT,
-                    cost             REAL,
-                    currency         TEXT,
-                    rating           INTEGER CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5)),
-                    connection       INTEGER NULL,
-                    FOREIGN KEY (connection) REFERENCES flights (id) ON DELETE SET NULL,
-                    CHECK (connection IS NULL OR connection <> id)
-                )""",
-            "model": FlightModel
-        },
-        "users": {
-            "pragma": """
-                (
-                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
-                    password_hash TEXT NOT NULL,
-                    is_admin      BIT NOT NULL DEFAULT 0,
-                    public_profile BIT NOT NULL DEFAULT 0,
-                    last_login    DATETIME,
-                    created_on    DATETIME NOT NULL DEFAULT current_timestamp
-                )""",
-            "model": User
-        }
-    }
 
-    def __init__(self, db_dir: str):
-        print("Initializing database connection")
-
-        db_path = os.path.join(db_dir, "jetlog.db")
-
-        if os.path.isfile(db_path):
-            self.connection = sqlite3.connect(db_path)
-            self.connection.execute("PRAGMA foreign_keys = ON;")
-
-            # update airports and airlines tables
-            self.update_tables()
-
-            # ensure fr24 sync tracking table exists
-            self.ensure_fr24_table()
-            self.ensure_audit_table()
-
-            # verify that all tables are up-to-date
-            # (backward compatibility)
-            for table in self.tables:
-                table_info = self.execute_read_query(f"PRAGMA table_info({table});")
-                column_names = [ col[1] for col in table_info ]
-
-                table_pragma = self.tables[table]["pragma"]
-                table_model = self.tables[table]["model"]
-
-                if not column_names:
-                    print(f"Missing table '{table}'. Creating it...")
-                    self.execute_query(f"CREATE TABLE {table} {table_pragma};")
-
-                    # if migrating to users update, also
-                    # create the default user and assign
-                    # all present flights to it
-                    if table == "users":
-                        self.create_first_user()
-
-                    continue
-
-                needs_patch = False
-                for key in table_model.get_attributes():
-                    if key not in column_names:
-                        print(f"Detected missing column '{key}' in table '{table}'. Scheduled a patch...")
-                        needs_patch = True
-
-                if needs_patch:
-                    self.patch_table(table, column_names)
-
+def _convert_placeholders(query: str) -> str:
+    """Convert sqlite3-style '?' placeholders to SQLAlchemy ':pN' named params."""
+    result = []
+    param_index = 0
+    i = 0
+    while i < len(query):
+        if query[i] == '?':
+            result.append(f":p{param_index}")
+            param_index += 1
         else:
-            print("Database file not found, creating it...")
+            result.append(query[i])
+        i += 1
+    return "".join(result)
 
-            try:
-                self.connection = sqlite3.connect(db_path)
-            except:
-                print(f"Could not create database. Please check your volume's ownership")
-                exit()
 
-            try:
-                self.initialize_tables()
-            except HTTPException as e:
-                print("Exception occurred while initializing tables: " + e.detail)
-                os.remove(db_path)
-                exit()
+def _make_param_dict(parameters: list) -> dict:
+    """Convert a list of parameters to a dict keyed by :pN."""
+    return {f"p{i}": v for i, v in enumerate(parameters)}
 
-        print("Database initialization complete")
- 
-    def initialize_tables(self):
-        for table in self.tables:
-            table_pragma = self.tables[table]["pragma"]
-            self.execute_query(f"CREATE TABLE {table} {table_pragma};")
 
-        self.create_first_user()
-        self.update_tables(drop_old=False)
-        self.ensure_fr24_table()
-        self.ensure_audit_table()
+class Database:
+    """Compatibility wrapper that provides execute_query/execute_read_query
+    using SQLAlchemy sessions underneath."""
 
-    def create_first_user(self):
-        from server.auth.utils import hash_password
-
-        print("Creating first user admin:admin...")
-        print("REMEMBER TO CHANGE THE DEFAULT PASSWORD FOR THIS USER!!!")
-
-        default_username = "admin"
-        default_password = hash_password("admin")
-        self.execute_query("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 1);",
-                           [default_username, default_password])
-
-    def ensure_fr24_table(self):
-        self.execute_query("""
-        CREATE TABLE IF NOT EXISTS fr24_synced_flights (
-            flight_id  INTEGER PRIMARY KEY REFERENCES flights(id) ON DELETE CASCADE,
-            synced_at  DATETIME DEFAULT current_timestamp
-        );""")
-
-    def ensure_audit_table(self):
-        self.execute_query("""
-        CREATE TABLE IF NOT EXISTS audit_logs (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp  DATETIME NOT NULL DEFAULT current_timestamp,
-            username   TEXT NOT NULL,
-            action     TEXT NOT NULL,
-            flight_id  INTEGER,
-            details    TEXT
-        );""")
-
-    def update_tables(self, drop_old: bool = True):
-        print("Updating airports and airlines tables...")
-        airports_db_path = Path(__file__).parent.parent / 'data' / 'airports.db'
-        airlines_db_path = Path(__file__).parent.parent / 'data' / 'airlines.db'
-
-        if drop_old:
-            try:
-                self.execute_query("DROP TABLE airports;")
-                self.execute_query("DROP TABLE airlines;")
-            except: 
-                # if airports database not found, simply skip deletion
-                pass
-
-        self.execute_query("""
-        CREATE TABLE airports (
-            icao         TEXT PRIMARY KEY,
-            iata         TEXT,
-            type         TEXT,
-            name         TEXT,
-            municipality TEXT,
-            region       TEXT,
-            country      TEXT,
-            continent    TEXT,
-            latitude     FLOAT,
-            longitude    FLOAT,
-            timezone     TEXT
-        );""")
-
-        self.execute_query("""
-        CREATE TABLE airlines (
-            icao TEXT PRIMARY KEY,
-            iata TEXT,
-            name TEXT
-        );""")
-
-        self.execute_query(f"ATTACH '{airports_db_path}' AS ap;")
-        self.execute_query(f"ATTACH '{airlines_db_path}' AS ar;")
-
-        self.execute_query("INSERT INTO main.airports SELECT * FROM ap.airports;")
-        self.execute_query("INSERT INTO main.airlines SELECT * FROM ar.airlines;")
-
-        self.execute_query("DETACH ap;")
-        self.execute_query("DETACH ar;")
-
-    def patch_table(self, table: str, present: list[str]):
-        print(f"Patching table '{table}'...")
-
-        table_pragma = self.tables[table]["pragma"]
-
-        self.execute_query(f"DROP TABLE IF EXISTS _{table};")
-        self.execute_query(f"CREATE TABLE _{table} {table_pragma};")
-        self.execute_query(f"INSERT INTO _{table} ({', '.join(present)}) SELECT * FROM {table};")
-        self.execute_query(f"DROP TABLE {table};")
-        self.execute_query(f"ALTER TABLE _{table} RENAME TO {table};")
-
-    def execute_query(self, query: str, parameters=[]) -> tuple:
+    def execute_query(self, query: str, parameters=None) -> tuple:
+        if parameters is None:
+            parameters = []
         try:
-            cursor = self.connection.cursor()
-            cursor.execute(query, parameters)
-            result = cursor.fetchone()
-            self.connection.commit()
-
-        except sqlite3.Error as err:
+            with SessionLocal() as session:
+                converted = _convert_placeholders(query)
+                params = _make_param_dict(parameters)
+                result = session.execute(text(converted), params)
+                row = result.fetchone() if result.returns_rows else None
+                session.commit()
+                return tuple(row) if row else ()
+        except Exception as err:
             raise HTTPException(status_code=500, detail="SQL error: " + str(err))
 
-        return result if result else ()
-
-    def execute_read_query(self, query: str, parameters=[]) -> list:
+    def execute_read_query(self, query: str, parameters=None) -> list:
+        if parameters is None:
+            parameters = []
         try:
-            cursor = self.connection.cursor()
-            cursor.execute(query, parameters)
-            result = cursor.fetchall()
-
-            return result
-
-        except sqlite3.Error as err:
+            with SessionLocal() as session:
+                converted = _convert_placeholders(query)
+                params = _make_param_dict(parameters)
+                result = session.execute(text(converted), params)
+                return [tuple(row) for row in result.fetchall()]
+        except Exception as err:
             raise HTTPException(status_code=500, detail="SQL error: " + str(err))
 
-database = Database(DATA_PATH)
+
+# Module-level singleton, preserving the import pattern:
+#   from server.database import database
+database = Database()

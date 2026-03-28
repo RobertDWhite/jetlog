@@ -1,333 +1,443 @@
-import React, { useState, useEffect } from 'react';
-import { ComposableMap, ZoomableGroup, Geographies, Geography, Marker, Line } from "react-simple-maps";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import MapGL, { Source, Layer, MapRef, useControl, NavigationControl } from 'react-map-gl/maplibre';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import { MapboxOverlay } from '@deck.gl/mapbox';
+import { ArcLayer, ScatterplotLayer } from '@deck.gl/layers';
+import type { PickingInfo } from '@deck.gl/core';
 
 import API from '../api';
 import ConfigStorage from '../storage/configStorage';
 import { Coord, Trajectory } from '../models';
 
-interface BoundsInterface {
-    south: number;
-    north: number;
-    west: number;
-    east: number;
-}
-const defaultBounds: BoundsInterface = {
-    south: -90,
-    north: 90,
-    west: -180,
-    east: 180
+const DARK_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+
+// deck.gl overlay hook for react-map-gl
+function DeckGLOverlay(props: any) {
+    const overlay = useControl(() => new MapboxOverlay(props));
+    overlay.setProps(props);
+    return null;
 }
 
-interface TooltipData {
+interface TooltipState {
     x: number;
     y: number;
     content: React.ReactNode;
 }
 
-function MapTooltip({ tooltip, onClose }: { tooltip: TooltipData; onClose: () => void }) {
-    return (
-        <div className="absolute z-50 bg-gray-900 text-white text-sm rounded shadow-lg px-3 py-2 max-w-xs pointer-events-auto"
-             style={{ left: tooltip.x, top: tooltip.y, transform: 'translate(-50%, -100%) translateY(-10px)' }}>
-            {tooltip.content}
-            <button className="absolute top-0 right-1 text-gray-400 hover:text-white text-xs leading-none"
-                    onClick={onClose}>
-                {'\u2715'}
-            </button>
-        </div>
-    );
-}
-
-interface MapGeographiesProps {
-    lines: Trajectory[];
-    markers: Coord[];
-    zoom: number;
-    onMarkerClick?: (marker: Coord, event: React.MouseEvent) => void;
-    onLineHover?: (line: Trajectory, event: React.MouseEvent) => void;
-    onLineLeave?: () => void;
-}
-function MapFeatures({ lines, markers, zoom, onMarkerClick, onLineHover, onLineLeave }: MapGeographiesProps) {
-    const [world, setWorld] = useState<object>();
-
-    useEffect(() => {
-        const showVisitedCountries = ConfigStorage.getSetting("showVisitedCountries");
-        API.get(`/geography/world?visited=${showVisitedCountries}`)
-        .then((data) => setWorld(data));
-    }, []);
-
-    if (world === undefined) {
-        return;
-    }
-
-    const scaleFactor = 1 / Math.sqrt(zoom);
-
-    const maxFrequency = lines.length > 0 ? Math.max(...lines.map(l => l.frequency)) : 1;
-
-    const heatColor = (frequency: number) => {
-        if (maxFrequency <= 1) return '#FF5533CC';
-        const t = (frequency - 1) / (maxFrequency - 1); // 0 to 1
-        // blue → cyan → green → yellow → red
-        if (t < 0.25) {
-            const s = t / 0.25;
-            return `rgba(${Math.round(66 + s * (0 - 66))}, ${Math.round(133 + s * (200 - 133))}, ${Math.round(244 + s * (200 - 244))}, 0.8)`;
-        } else if (t < 0.5) {
-            const s = (t - 0.25) / 0.25;
-            return `rgba(${Math.round(s * 76)}, ${Math.round(200 + s * (175 - 200))}, ${Math.round(200 - s * 120)}, 0.8)`;
-        } else if (t < 0.75) {
-            const s = (t - 0.5) / 0.25;
-            return `rgba(${Math.round(76 + s * (255 - 76))}, ${Math.round(175 + s * (200 - 175))}, ${Math.round(80 - s * 80)}, 0.8)`;
-        } else {
-            const s = (t - 0.75) / 0.25;
-            return `rgba(${255}, ${Math.round(200 - s * 150)}, ${0}, 0.8)`;
-        }
-    };
-
-    return (
-        <>
-        <Geographies geography={world}>
-            {({ geographies }) =>
-              geographies.map((geo) => (
-                <Geography
-                    key={geo.rsmKey}
-                    geography={geo}
-                    stroke="#111"
-                    strokeWidth={0.7 * scaleFactor}
-                    fill={geo.properties.visited ? "#F25000" : "#333"}
-                    />
-              ))
-            }
-        </Geographies>
-
-        { lines.map((line, i) => (
-            <Line
-                key={i}
-                from={[line.first.longitude, line.first.latitude]}
-                to={[line.second.longitude, line.second.latitude]}
-                stroke={ConfigStorage.getSetting("frequencyBasedLine") === "true" ? heatColor(line.frequency) : "#FF5533CC"}
-                strokeWidth={
-                        (
-                            ConfigStorage.getSetting("frequencyBasedLine") === "true" ?
-                            Math.min(1 + Math.floor(line.frequency / 3), 6)
-                            : 1
-                        ) * scaleFactor
-                    }
-                strokeLinecap="round"
-                style={{ cursor: onLineHover ? 'pointer' : 'default' }}
-                onMouseEnter={onLineHover ? (e) => onLineHover(line, e as any) : undefined}
-                onMouseLeave={onLineLeave}
-            />
-
-        ))}
-
-        { markers.map((marker, i) => (
-            <Marker key={i}
-                    coordinates={[marker.longitude, marker.latitude]}
-                    onClick={onMarkerClick ? (e) => onMarkerClick(marker, e as any) : undefined}
-                    style={{ cursor: onMarkerClick ? 'pointer' : 'default' }}>
-                <circle r={
-                        (
-                            ConfigStorage.getSetting("frequencyBasedMarker") === "true" ?
-                            Math.min(3 + Math.floor(marker.frequency / 3), 6)
-                            : 3
-                        ) * scaleFactor
-                    }
-                    fill={
-                        ConfigStorage.getSetting("frequencyBasedMarker") === "true" ?
-                        "#FFA50080"
-                        : "#FFA500"
-                    }
-                    stroke="#FFA500"
-                    strokeWidth={0.5 * scaleFactor}
-                />
-            </Marker>
-        ))}
-        </>
-    );
-}
-
 export default function WorldMap() {
     const [lines, setLines] = useState<Trajectory[]>([]);
     const [markers, setMarkers] = useState<Coord[]>([]);
-    const [initialZoom, setInitialZoom] = useState<number>(1);
-    const [zoom, setZoom] = useState<number>(1);
-    const [center, setCenter] = useState<[number, number]>([0, 0]);
-    const [tooltip, setTooltip] = useState<TooltipData | null>(null);
-    const [lineTooltip, setLineTooltip] = useState<TooltipData | null>(null);
+    const [worldGeoJSON, setWorldGeoJSON] = useState<any>(null);
+    const [tooltip, setTooltip] = useState<TooltipState | null>(null);
+    const [viewState, setViewState] = useState({
+        longitude: 0,
+        latitude: 20,
+        zoom: 1.5,
+        pitch: 0,
+        bearing: 0,
+    });
+    const [dataLoaded, setDataLoaded] = useState(false);
+    const mapRef = useRef<MapRef>(null);
+
+    const frequencyBasedLine = ConfigStorage.getSetting('frequencyBasedLine') === 'true';
+    const frequencyBasedMarker = ConfigStorage.getSetting('frequencyBasedMarker') === 'true';
+    const showVisitedCountries = ConfigStorage.getSetting('showVisitedCountries');
+    const restrictWorldMap = ConfigStorage.getSetting('restrictWorldMap') === 'true';
 
     useEffect(() => {
-        API.get("/geography/decorations")
-        .then((data: [Trajectory[], Coord[]]) => {
-            setLines(data[0]);
-            setMarkers(data[1]);
+        API.get('/geography/decorations')
+            .then((data: [Trajectory[], Coord[]]) => {
+                setLines(data[0]);
+                setMarkers(data[1]);
 
-            if (data[1] && data[1].length > 1 && ConfigStorage.getSetting("restrictWorldMap") === "true") {
-                const latitudes = data[1].map(coord => coord.latitude);
-                const longitudes = data[1].map(coord => coord.longitude);
+                if (data[1] && data[1].length > 1 && restrictWorldMap) {
+                    const latitudes = data[1].map(c => c.latitude);
+                    const longitudes = data[1].map(c => c.longitude);
 
-                const south = Math.min(...latitudes);
-                const north = Math.max(...latitudes);
-                const west = Math.min(...longitudes);
-                const east = Math.max(...longitudes);
+                    const south = Math.min(...latitudes);
+                    const north = Math.max(...latitudes);
+                    const west = Math.min(...longitudes);
+                    const east = Math.max(...longitudes);
 
-                const centerLon = (west + east) / 2;
-                const centerLat = (south + north) / 2;
-                setCenter([centerLon, centerLat]);
+                    const lonSpan = east - west;
+                    const latSpan = north - south;
+                    const maxSpan = Math.max(lonSpan, latSpan);
 
-                const lonSpan = east - west;
-                const latSpan = north - south;
-                const maxSpan = Math.max(lonSpan, latSpan);
-                const computedZoom = Math.min(150 / maxSpan, 3);
-                setInitialZoom(computedZoom);
+                    if (maxSpan > 0) {
+                        const centerLon = (west + east) / 2;
+                        const centerLat = (south + north) / 2;
+                        // Approximate zoom from span (log2-based for Mercator)
+                        const computedZoom = Math.max(
+                            Math.min(Math.log2(360 / maxSpan) - 0.5, 8),
+                            1.5
+                        );
 
-                if (computedZoom < 1) {
-                   setInitialZoom(1);
-                   setCenter([0, 0]);
+                        setViewState(prev => ({
+                            ...prev,
+                            longitude: centerLon,
+                            latitude: centerLat,
+                            zoom: computedZoom,
+                        }));
+                    }
                 }
-            }
+
+                setDataLoaded(true);
+            });
+
+        API.get(`/geography/world?visited=${showVisitedCountries}`)
+            .then((data: any) => setWorldGeoJSON(data));
+    }, []);
+
+    const maxFrequency = useMemo(
+        () => (lines.length > 0 ? Math.max(...lines.map(l => l.frequency)) : 1),
+        [lines]
+    );
+
+    const getArcWidth = useCallback(
+        (d: Trajectory) => {
+            if (!frequencyBasedLine) return 2;
+            return Math.min(1 + (d.frequency / maxFrequency) * 5, 6);
+        },
+        [frequencyBasedLine, maxFrequency]
+    );
+
+    const getMarkerRadius = useCallback(
+        (d: Coord) => {
+            if (!frequencyBasedMarker) return 6000;
+            return Math.min(4000 + d.frequency * 1500, 20000);
+        },
+        [frequencyBasedMarker]
+    );
+
+    const handleHover = useCallback((info: PickingInfo) => {
+        if (!info.picked || !info.object) {
+            setTooltip(null);
+            return;
+        }
+
+        const { x, y, layer } = info;
+
+        if (layer?.id === 'flight-arcs') {
+            const arc = info.object as Trajectory;
+            const originLabel = arc.first.iata || arc.originIcao || '';
+            const destLabel = arc.second.iata || arc.destIcao || '';
+            setTooltip({
+                x,
+                y,
+                content: (
+                    <div>
+                        <div className="font-bold">{originLabel} {'\u2192'} {destLabel}</div>
+                        <div className="text-xs mt-1 text-gray-300">
+                            {arc.frequency} flight{arc.frequency !== 1 ? 's' : ''}
+                        </div>
+                    </div>
+                ),
+            });
+        } else if (layer?.id === 'airport-markers') {
+            const marker = info.object as Coord;
+            const label = marker.iata || marker.icao || '';
+            setTooltip({
+                x,
+                y,
+                content: (
+                    <div>
+                        <div className="font-bold">{label}</div>
+                        {marker.name && <div className="text-gray-300 text-xs">{marker.name}</div>}
+                        <div className="text-xs mt-1 text-gray-300">
+                            {marker.frequency} visit{marker.frequency !== 1 ? 's' : ''}
+                        </div>
+                    </div>
+                ),
+            });
+        }
+    }, []);
+
+    const layers = useMemo(() => [
+        new ArcLayer<Trajectory>({
+            id: 'flight-arcs',
+            data: lines,
+            getSourcePosition: (d: Trajectory) => [d.first.longitude, d.first.latitude],
+            getTargetPosition: (d: Trajectory) => [d.second.longitude, d.second.latitude],
+            getSourceColor: [65, 182, 230, 200],
+            getTargetColor: [255, 140, 0, 200],
+            getWidth: getArcWidth,
+            greatCircle: true,
+            getHeight: 0.3,
+            pickable: true,
+            autoHighlight: true,
+            highlightColor: [255, 255, 255, 100],
+            widthMinPixels: 1,
+            widthMaxPixels: 8,
+        }),
+        new ScatterplotLayer<Coord>({
+            id: 'airport-markers',
+            data: markers,
+            getPosition: (d: Coord) => [d.longitude, d.latitude],
+            getRadius: getMarkerRadius,
+            getFillColor: [255, 140, 0, 220],
+            getLineColor: [255, 255, 255, 180],
+            stroked: true,
+            lineWidthMinPixels: 1,
+            radiusMinPixels: 3,
+            radiusMaxPixels: 12,
+            pickable: true,
+            autoHighlight: true,
+            highlightColor: [255, 200, 80, 255],
+        }),
+    ], [lines, markers, getArcWidth, getMarkerRadius]);
+
+    const onMapLoad = useCallback(() => {
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+
+        // Globe atmosphere effect
+        map.setFog({
+            color: 'rgb(20, 20, 30)',
+            'high-color': 'rgb(30, 40, 70)',
+            'horizon-blend': 0.08,
+            'space-color': 'rgb(8, 10, 16)',
+            'star-intensity': 0.5,
         });
     }, []);
 
-    const handleMarkerClick = (marker: Coord, event: React.MouseEvent) => {
-        const rect = (event.currentTarget as Element).closest('svg')?.getBoundingClientRect();
-        if (!rect) return;
-
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-
-        const label = marker.iata || marker.icao || '';
-        const content = (
-            <div>
-                <div className="font-bold">{label}</div>
-                {marker.name && <div className="text-gray-300 text-xs">{marker.name}</div>}
-                <div className="text-xs mt-1">{marker.frequency} visit{marker.frequency !== 1 ? 's' : ''}</div>
-            </div>
-        );
-
-        setTooltip({ x, y, content });
-        setLineTooltip(null);
-    };
-
-    const handleLineHover = (line: Trajectory, event: React.MouseEvent) => {
-        const rect = (event.currentTarget as Element).closest('svg')?.getBoundingClientRect();
-        if (!rect) return;
-
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-
-        const originLabel = line.first.iata || line.originIcao || '';
-        const destLabel = line.second.iata || line.destIcao || '';
-
-        const content = (
-            <div>
-                <div className="font-bold">{originLabel} {'\u2192'} {destLabel}</div>
-                <div className="text-xs mt-1">{line.frequency} flight{line.frequency !== 1 ? 's' : ''}</div>
-            </div>
-        );
-
-        setLineTooltip({ x, y, content });
-    };
-
-    const handleBackgroundClick = () => {
-        setTooltip(null);
-        setLineTooltip(null);
+    // Visited countries fill layer style
+    const visitedFillLayer: any = {
+        id: 'visited-fill',
+        type: 'fill',
+        paint: {
+            'fill-color': [
+                'case',
+                ['==', ['get', 'visited'], true],
+                'rgba(255, 140, 0, 0.15)',
+                'rgba(0, 0, 0, 0)',
+            ],
+            'fill-outline-color': [
+                'case',
+                ['==', ['get', 'visited'], true],
+                'rgba(255, 140, 0, 0.4)',
+                'rgba(60, 60, 60, 0.5)',
+            ],
+        },
     };
 
     return (
-        <div className="relative" onClick={handleBackgroundClick}>
-            <ComposableMap width={1000} height={470}>
-                <ZoomableGroup maxZoom={10}
-                               translateExtent={[[0, 0], [1000, 470]]}
-                               zoom={initialZoom}
-                               center={center}
-                               onMove={({zoom: newZoom}) => {
-                                   if (newZoom != zoom) setZoom(newZoom)
-                               }}>
+        <div className="relative w-full" style={{ height: 470 }}>
+            <MapGL
+                ref={mapRef}
+                {...viewState}
+                onMove={evt => setViewState(evt.viewState)}
+                mapStyle={DARK_STYLE}
+                mapLib={maplibregl}
+                projection={{ type: 'globe' }}
+                onLoad={onMapLoad}
+                attributionControl={false}
+                style={{ width: '100%', height: '100%', borderRadius: '0.5rem' }}
+            >
+                <NavigationControl position="top-right" showCompass={false} />
 
-                    <MapFeatures lines={lines} markers={markers} zoom={zoom}
-                                 onMarkerClick={handleMarkerClick}
-                                 onLineHover={handleLineHover}
-                                 onLineLeave={() => setLineTooltip(null)} />
+                {worldGeoJSON && (
+                    <Source id="world-countries" type="geojson" data={worldGeoJSON}>
+                        <Layer {...visitedFillLayer} />
+                    </Source>
+                )}
 
-                </ZoomableGroup>
-            </ComposableMap>
+                <DeckGLOverlay
+                    layers={layers}
+                    onHover={handleHover}
+                    getTooltip={null}
+                />
+            </MapGL>
 
-            {tooltip && <MapTooltip tooltip={tooltip} onClose={() => setTooltip(null)} />}
-            {lineTooltip && <MapTooltip tooltip={lineTooltip} onClose={() => setLineTooltip(null)} />}
+            {tooltip && (
+                <div
+                    className="absolute z-50 bg-gray-900 text-white text-sm rounded shadow-lg px-3 py-2 max-w-xs pointer-events-none"
+                    style={{
+                        left: tooltip.x,
+                        top: tooltip.y,
+                        transform: 'translate(-50%, -100%) translateY(-10px)',
+                    }}
+                >
+                    {tooltip.content}
+                </div>
+            )}
         </div>
     );
 }
+
+// --- SingleFlightMap ---
 
 interface SingleFlightMapProps {
     flightID: number;
     distance: number;
 }
+
+function greatCircleGeoJSON(
+    lon1: number, lat1: number,
+    lon2: number, lat2: number,
+    numPoints: number = 100
+): GeoJSON.Feature<GeoJSON.LineString> {
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const toDeg = (r: number) => (r * 180) / Math.PI;
+
+    const phi1 = toRad(lat1);
+    const lam1 = toRad(lon1);
+    const phi2 = toRad(lat2);
+    const lam2 = toRad(lon2);
+
+    const d = 2 * Math.asin(
+        Math.sqrt(
+            Math.pow(Math.sin((phi2 - phi1) / 2), 2) +
+            Math.cos(phi1) * Math.cos(phi2) * Math.pow(Math.sin((lam2 - lam1) / 2), 2)
+        )
+    );
+
+    const coords: [number, number][] = [];
+    for (let i = 0; i <= numPoints; i++) {
+        const f = i / numPoints;
+        const A = Math.sin((1 - f) * d) / Math.sin(d);
+        const B = Math.sin(f * d) / Math.sin(d);
+        const x = A * Math.cos(phi1) * Math.cos(lam1) + B * Math.cos(phi2) * Math.cos(lam2);
+        const y = A * Math.cos(phi1) * Math.sin(lam1) + B * Math.cos(phi2) * Math.sin(lam2);
+        const z = A * Math.sin(phi1) + B * Math.sin(phi2);
+        const lat = toDeg(Math.atan2(z, Math.sqrt(x * x + y * y)));
+        const lon = toDeg(Math.atan2(y, x));
+        coords.push([lon, lat]);
+    }
+
+    return {
+        type: 'Feature',
+        properties: {},
+        geometry: {
+            type: 'LineString',
+            coordinates: coords,
+        },
+    };
+}
+
 export function SingleFlightMap({ flightID, distance }: SingleFlightMapProps) {
     const [lines, setLines] = useState<Trajectory[]>([]);
     const [markers, setMarkers] = useState<Coord[]>([]);
+    const mapRef = useRef<MapRef>(null);
 
     useEffect(() => {
         API.get(`/geography/decorations?flight_id=${flightID}`)
-        .then((data: [Trajectory[], Coord[]]) => {
-            setLines(data[0]);
-            setMarkers(data[1]);
-        })
-    }, [])
+            .then((data: [Trajectory[], Coord[]]) => {
+                setLines(data[0]);
+                setMarkers(data[1]);
+            });
+    }, [flightID]);
 
-    // some trajectory is required for this component
-    if (lines.length == 0) {
-        return;
+    const onMapLoad = useCallback(() => {
+        const map = mapRef.current?.getMap();
+        if (!map || markers.length < 2) return;
+
+        const lons = markers.map(m => m.longitude);
+        const lats = markers.map(m => m.latitude);
+
+        map.fitBounds(
+            [
+                [Math.min(...lons), Math.min(...lats)],
+                [Math.max(...lons), Math.max(...lats)],
+            ],
+            { padding: 80, maxZoom: 8, duration: 0 }
+        );
+    }, [markers]);
+
+    // Wait for data
+    if (lines.length === 0 || markers.length < 2) {
+        return null;
     }
 
-    // function that computes midpoint of a trajectory
-    // on a sphere, i.e. supporting trajs. that 'clip'
-    // around the world projection
-    const midpointOnSphere = (p1: Coord, p2: Coord) => {
-        // convert degrees to radians
-        const toRad = deg => deg * Math.PI / 180;
-        const toDeg = rad => rad * 180 / Math.PI;
+    const origin = markers[0];
+    const dest = markers[1];
 
-        const lat1 = toRad(p1.latitude);
-        const lon1 = toRad(p1.longitude);
-        const lat2 = toRad(p2.latitude);
-        const lon2 = toRad(p2.longitude);
+    const routeGeoJSON = greatCircleGeoJSON(
+        origin.longitude, origin.latitude,
+        dest.longitude, dest.latitude
+    );
 
-        // convert to cartesian
-        const x1 = Math.cos(lat1) * Math.cos(lon1);
-        const y1 = Math.cos(lat1) * Math.sin(lon1);
-        const z1 = Math.sin(lat1);
-
-        const x2 = Math.cos(lat2) * Math.cos(lon2);
-        const y2 = Math.cos(lat2) * Math.sin(lon2);
-        const z2 = Math.sin(lat2);
-
-        // compute average
-        const x = (x1 + x2) / 2;
-        const y = (y1 + y2) / 2;
-        const z = (z1 + z2) / 2;
-
-        // convert back to lat/lon
-        const lon = Math.atan2(y, x);
-        const hyp = Math.sqrt(x * x + y * y);
-        const lat = Math.atan2(z, hyp);
-
-        return [toDeg(lon), toDeg(lat)];
+    const airportsGeoJSON: GeoJSON.FeatureCollection = {
+        type: 'FeatureCollection',
+        features: markers.map(m => ({
+            type: 'Feature' as const,
+            properties: { icao: m.icao || '', iata: m.iata || '', name: m.name || '' },
+            geometry: {
+                type: 'Point' as const,
+                coordinates: [m.longitude, m.latitude],
+            },
+        })),
     };
 
-    // compute center and zoom of map so that it fits the trajectory
-    const center = midpointOnSphere(markers[0], markers[1]);
-    const zoom = Math.min(20000/distance, 10) * 160;
+    // Compute initial center for best view
+    const centerLon = (origin.longitude + dest.longitude) / 2;
+    const centerLat = (origin.latitude + dest.latitude) / 2;
+    const lonSpan = Math.abs(origin.longitude - dest.longitude);
+    const latSpan = Math.abs(origin.latitude - dest.latitude);
+    const maxSpan = Math.max(lonSpan, latSpan);
+    const initZoom = maxSpan > 0 ? Math.max(Math.min(Math.log2(360 / maxSpan) - 0.5, 8), 1) : 4;
 
     return (
-        <ComposableMap width={1000}
-                       height={470}
-                       projectionConfig={{
-                           scale: zoom,
-                           rotate: [-center[0], -center[1], 0] // rotate world around center of traj.
-                       }}>
+        <div className="w-full" style={{ height: 350 }}>
+            <MapGL
+                ref={mapRef}
+                initialViewState={{
+                    longitude: centerLon,
+                    latitude: centerLat,
+                    zoom: initZoom,
+                }}
+                mapStyle={DARK_STYLE}
+                mapLib={maplibregl}
+                onLoad={onMapLoad}
+                attributionControl={false}
+                interactive={true}
+                style={{ width: '100%', height: '100%', borderRadius: '0.5rem' }}
+            >
+                <Source id="route" type="geojson" data={routeGeoJSON}>
+                    <Layer
+                        id="route-line"
+                        type="line"
+                        paint={{
+                            'line-color': '#41b6e6',
+                            'line-width': 3,
+                            'line-opacity': 0.85,
+                        }}
+                        layout={{
+                            'line-cap': 'round',
+                            'line-join': 'round',
+                        }}
+                    />
+                </Source>
 
-                {/* the zoom calculation effectively undoes the automatic zoom
-                    adjustment from the ComposableMap component */}
-                <MapFeatures lines={lines} markers={markers} zoom={1 / Math.sqrt(zoom)}/>
-
-        </ComposableMap>
+                <Source id="airports" type="geojson" data={airportsGeoJSON}>
+                    <Layer
+                        id="airport-dots"
+                        type="circle"
+                        paint={{
+                            'circle-radius': 7,
+                            'circle-color': '#FF8C00',
+                            'circle-stroke-color': '#FFFFFF',
+                            'circle-stroke-width': 2,
+                        }}
+                    />
+                    <Layer
+                        id="airport-labels"
+                        type="symbol"
+                        layout={{
+                            'text-field': ['coalesce', ['get', 'iata'], ['get', 'icao']],
+                            'text-size': 12,
+                            'text-offset': [0, 1.5],
+                            'text-anchor': 'top',
+                            'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                        }}
+                        paint={{
+                            'text-color': '#FFFFFF',
+                            'text-halo-color': 'rgba(0, 0, 0, 0.7)',
+                            'text-halo-width': 1,
+                        }}
+                    />
+                </Source>
+            </MapGL>
+        </div>
     );
 }

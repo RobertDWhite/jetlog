@@ -13,6 +13,7 @@ import Settings from './pages/Settings';
 import YearInReview from './pages/YearInReview';
 import PublicProfile from './pages/PublicProfile';
 import Gallery from './pages/Gallery';
+import AirportDetail from './pages/AirportDetail';
 
 import Navbar from './components/Navbar';
 
@@ -40,6 +41,7 @@ export function App() {
                     <Route path="/statistics" element={<Statistics />} />
                     <Route path="/review" element={<YearInReview />} />
                     <Route path="/gallery" element={<Gallery />} />
+                    <Route path="/airport/:icao" element={<AirportDetail />} />
                     <Route path="/profile/:username" element={<PublicProfile />} />
                     <Route path="/settings" element={<Settings />} />
                 </Route>

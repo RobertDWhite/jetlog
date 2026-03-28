@@ -1,6 +1,15 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+    html {
+        scroll-behavior: smooth;
+        font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    }
+}
 
 @layer components {
     .container {
@@ -14,5 +23,22 @@
 
     span {
         @apply font-mono text-primary-500
+    }
+
+    .tabular-nums {
+        font-feature-settings: 'tnum';
+    }
+
+    .glass-card {
+        background: rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 12px;
+    }
+
+    .dark .glass-card {
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.08);
     }
 }

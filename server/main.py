@@ -1,4 +1,5 @@
-from server.routers import flights, airports, airlines, statistics, geography, importing, exporting, fr24_sync
+from server.db.session import init_db
+from server.routers import flights, airports, airlines, statistics, geography, importing, exporting, fr24_sync, health, metrics, tripit
 from server.auth import users, auth
 from server.environment import ENABLE_EXTERNAL_APIS, FR24_EMAIL, FR24_PASSWORD
 from fastapi import FastAPI, Depends, Request
@@ -6,15 +7,15 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
-tags_metadata=[
-    { "name": "flights" },
-    { "name": "airports" },
-    { "name": "airlines"},
-    { "name": "statistics" },
-    { "name": "geography" },
-    { "name": "importing/exporting" },
-    { "name": "users" },
-    { "name": "authentication" }
+tags_metadata = [
+    {"name": "flights"},
+    {"name": "airports"},
+    {"name": "airlines"},
+    {"name": "statistics"},
+    {"name": "geography"},
+    {"name": "importing/exporting"},
+    {"name": "users"},
+    {"name": "authentication"}
 ]
 
 app = FastAPI(openapi_tags=tags_metadata)
@@ -30,18 +31,30 @@ app.include_router(geography.router, prefix="/api", dependencies=auth_dependency
 app.include_router(importing.router, prefix="/api", dependencies=auth_dependency)
 app.include_router(exporting.router, prefix="/api", dependencies=auth_dependency)
 app.include_router(fr24_sync.router, prefix="/api", dependencies=auth_dependency)
+app.include_router(tripit.router, prefix="/api", dependencies=auth_dependency)
 
 app.include_router(users.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 
+# Health and metrics endpoints - no auth required
+app.include_router(health.router)
+app.include_router(metrics.router)
+
+
+@app.on_event("startup")
+def startup_event():
+    init_db()
+
+
 @app.get("/config")
 async def get_config(request: Request):
     config = {
-            "BASE_URL": request.scope.get("root_path", "/"),
-            "ENABLE_EXTERNAL_APIS": ENABLE_EXTERNAL_APIS,
-            "FR24_CONFIGURED": bool(FR24_EMAIL and FR24_PASSWORD and ENABLE_EXTERNAL_APIS)
+        "BASE_URL": request.scope.get("root_path", "/"),
+        "ENABLE_EXTERNAL_APIS": ENABLE_EXTERNAL_APIS,
+        "FR24_CONFIGURED": bool(FR24_EMAIL and FR24_PASSWORD and ENABLE_EXTERNAL_APIS)
     }
     return JSONResponse(config)
+
 
 @app.get("/", include_in_schema=False)
 @app.get("/new", include_in_schema=False)
@@ -53,5 +66,6 @@ async def root():
     with open(build_path / 'index.html', "r") as file:
         html = file.read()
     return HTMLResponse(content=html)
+
 
 app.mount("/", StaticFiles(directory=build_path), name="app")

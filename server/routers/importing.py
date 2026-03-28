@@ -1,3 +1,4 @@
+from server.db.session import get_db
 from server.models import FlightModel, FlightPurpose, SeatType, ClassType, User
 from server.routers.flights import add_flight
 from server.internal.airport_utils import get_icao_from_iata
@@ -5,6 +6,7 @@ from server.internal.flight_utils import flight_already_exists
 from server.auth.users import get_current_user
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from sqlalchemy.orm import Session
 from enum import Enum
 import datetime
 import csv
@@ -24,7 +26,8 @@ class CSVType(str, Enum):
 @router.post("", status_code=202)
 async def import_CSV(csv_type: CSVType,
                      file: UploadFile,
-                     user: User = Depends(get_current_user)):
+                     user: User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
     imported_flights: list[FlightModel] = []
     fail_count = 0
 
@@ -81,7 +84,7 @@ async def import_CSV(csv_type: CSVType,
                 # from myflightradar24, 0=none, 1=leisure, 2=business, 3=crew, 4=other
                 values_dict['purpose'] = list(FlightPurpose)[int(values[13]) - 1] if int(values[13]) > 0 else None
                 # conversion from hh:mm:ss to minutes
-                values_dict['duration'] = int(values[6][:2]) * 60 + int(values[6][3:5]) 
+                values_dict['duration'] = int(values[6][:2]) * 60 + int(values[6][3:5])
                 values_dict['airline'] = values[7][-4:-1] if values[7] != " (/)" else None
                 values_dict['airplane'] = values[8] if values[8] != " ()" else None
                 values_dict['flight_number'] = values[1] if values[1] else None
@@ -130,7 +133,7 @@ async def import_CSV(csv_type: CSVType,
                 raise HTTPException(status_code=400, detail="Connection field can only be set after importing flights")
 
             values = row
-            values = [ val.rstrip('\r\n').replace("\\n", "\n") if val != '' else None for val in values ] 
+            values = [ val.rstrip('\r\n').replace("\\n", "\n") if val != '' else None for val in values ]
             values_dict = {}
             try:
                 assert len(values) == len(present_columns), f"Expected {len(present_columns)} entries, got {len(values)}"
@@ -270,9 +273,9 @@ async def import_CSV(csv_type: CSVType,
 
     print(f"Importing {len(imported_flights)} flights...")
     for i in range(len(imported_flights)):
-        progress = f"[{i+1}/{len(imported_flights)}]" 
+        progress = f"[{i+1}/{len(imported_flights)}]"
         try:
-            res = await add_flight(imported_flights[i], user=user)
+            res = await add_flight(imported_flights[i], user=user, db=db)
             print(f"{progress} Successfully added flight (id: {res})")
         except HTTPException as e:
             print(f"{progress} Failed import: {e.detail}")

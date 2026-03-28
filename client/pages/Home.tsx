@@ -4,8 +4,46 @@ import { useNavigate } from 'react-router-dom';
 import { ShortStats } from '../components/Stats';
 import WorldMap from '../components/WorldMap';
 import { Button, Spinner } from '../components/Elements';
-import { Flight } from '../models';
+import { Flight, Statistics } from '../models';
 import API from '../api';
+import ConfigStorage from '../storage/configStorage';
+
+function MapOverlayStats() {
+    const [statistics, setStatistics] = useState<Statistics>();
+    const metricUnits = ConfigStorage.getSetting("metricUnits");
+
+    useEffect(() => {
+        API.get(`/statistics?metric=${metricUnits}`)
+        .then((data: Statistics) => {
+            setStatistics(data);
+        });
+    }, []);
+
+    if (!statistics || statistics.totalFlights === 0) return null;
+
+    const stats = [
+        { value: statistics.totalFlights, label: 'Flights' },
+        { value: statistics.totalUniqueAirports, label: 'Airports' },
+        { value: (statistics.totalDuration / 60).toFixed(0), label: 'Hours' },
+        { value: statistics.totalDistance.toLocaleString(), label: metricUnits === 'false' ? 'Miles' : 'Kilometers' },
+        { value: statistics.visitedCountries, label: 'Countries' },
+    ];
+
+    return (
+        <div className="absolute bottom-4 left-4 right-4 z-20 flex gap-3 justify-center flex-wrap pointer-events-none">
+            {stats.map((stat, i) => (
+                <div key={i} className="glass-card px-4 py-3 text-center min-w-[100px] pointer-events-auto">
+                    <div className="text-2xl font-bold text-white drop-shadow-md">
+                        {stat.value}
+                    </div>
+                    <div className="text-xs text-gray-300 font-medium uppercase tracking-wider">
+                        {stat.label}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+}
 
 function UpcomingFlights() {
     const [flights, setFlights] = useState<Flight[]>();
@@ -127,11 +165,10 @@ function RecentFlights() {
 export default function Home() {
     return (
         <>
-            <ShortStats />
-
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
-                <div className="md:col-span-2">
+                <div className="md:col-span-2 relative">
                     <WorldMap />
+                    <MapOverlayStats />
                 </div>
                 <div>
                     <UpcomingFlights />

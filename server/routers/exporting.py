@@ -1,9 +1,11 @@
+from server.db.session import get_db
 from server.models import AirportModel, AirlineModel, FlightModel, SeatType, ClassType, FlightPurpose, User
 from server.routers.flights import get_flights
 from server.auth.users import get_current_user
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse, HTMLResponse
+from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 import os
 import csv
@@ -23,8 +25,9 @@ def stringify_airport(airport: AirportModel) -> str:
     return f"{code} - {airport.municipality}/{airport.country}"
 
 @router.post("/csv", status_code=200)
-async def export_to_CSV(user: User = Depends(get_current_user)) -> FileResponse:
-    flights = await get_flights(limit=-1, user=user)
+async def export_to_CSV(user: User = Depends(get_current_user),
+                        db: Session = Depends(get_db)) -> FileResponse:
+    flights = await get_flights(limit=-1, user=user, db=db)
     assert type(flights) == list # make linter happy
 
     file = open("/tmp/jetlog.csv", 'w', newline='')
@@ -38,13 +41,14 @@ async def export_to_CSV(user: User = Depends(get_current_user)) -> FileResponse:
         csv_writer.writerow(values)
 
     file.close()
-    return FileResponse("/tmp/jetlog.csv", 
+    return FileResponse("/tmp/jetlog.csv",
                         background=BackgroundTask(cleanup, "/tmp/jetlog.csv"),
                         filename="jetlog.csv")
 
 @router.post("/ical", status_code=200)
-async def export_to_iCal(user: User = Depends(get_current_user)) -> FileResponse:
-    flights = await get_flights(limit=-1, user=user)
+async def export_to_iCal(user: User = Depends(get_current_user),
+                         db: Session = Depends(get_db)) -> FileResponse:
+    flights = await get_flights(limit=-1, user=user, db=db)
     assert type(flights) == list # make linter happy
 
     file = open("/tmp/jetlog.ics", "a")
@@ -93,7 +97,7 @@ def format_mfr24_airline(airline) -> str:
         return " (/)"
     if isinstance(airline, AirlineModel):
         return f"{airline.name} ({airline.icao})"
-    # string (ICAO code only) — wrap in the expected format
+    # string (ICAO code only) -- wrap in the expected format
     return f" ({airline})"
 
 def format_mfr24_duration(minutes: int|None) -> str:
@@ -125,8 +129,9 @@ PURPOSE_TO_MFR24 = {
 }
 
 @router.post("/myflightradar24", status_code=200)
-async def export_to_myflightradar24(user: User = Depends(get_current_user)) -> FileResponse:
-    flights = await get_flights(limit=-1, user=user)
+async def export_to_myflightradar24(user: User = Depends(get_current_user),
+                                    db: Session = Depends(get_db)) -> FileResponse:
+    flights = await get_flights(limit=-1, user=user, db=db)
     assert type(flights) == list
 
     file = open("/tmp/jetlog_mfr24.csv", 'w', newline='')
@@ -171,8 +176,9 @@ async def export_to_myflightradar24(user: User = Depends(get_current_user)) -> F
                         filename="jetlog_myflightradar24.csv")
 
 @router.post("/kml", status_code=200)
-async def export_to_KML(user: User = Depends(get_current_user)) -> FileResponse:
-    flights = await get_flights(limit=-1, user=user)
+async def export_to_KML(user: User = Depends(get_current_user),
+                        db: Session = Depends(get_db)) -> FileResponse:
+    flights = await get_flights(limit=-1, user=user, db=db)
     assert type(flights) == list
 
     file = open("/tmp/jetlog.kml", "w")
@@ -240,8 +246,9 @@ async def export_to_KML(user: User = Depends(get_current_user)) -> FileResponse:
                         media_type="application/vnd.google-earth.kml+xml")
 
 @router.post("/pdf", status_code=200)
-async def export_to_pdf(user: User = Depends(get_current_user)) -> HTMLResponse:
-    flights = await get_flights(limit=-1, user=user)
+async def export_to_pdf(user: User = Depends(get_current_user),
+                        db: Session = Depends(get_db)) -> HTMLResponse:
+    flights = await get_flights(limit=-1, user=user, db=db)
     assert type(flights) == list
 
     total_distance = sum(f.distance or 0 for f in flights)

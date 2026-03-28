@@ -6,18 +6,22 @@ import sqlite3
 
 import pytz
 
-from server.database import database
+from server.db.session import get_db, SessionLocal
+from server.db.models import Flight, Airport, Airline as AirlineDB, AuditLog
 from server.environment import ENABLE_EXTERNAL_APIS, DATA_PATH, FLIGHTERA_API_KEY
 from server.models import AirlineModel, AirportModel, ClassType, CustomModel, FlightModel, AircraftSide, FlightPurpose, SeatType, User
 from server.auth.users import get_current_user
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse, FileResponse
+from sqlalchemy.orm import Session
+from sqlalchemy import func, text
 from enum import Enum
 
 
 def _sse_event(data: dict) -> str:
     return f"data: {json.dumps(data)}\n\n"
+
 
 router = APIRouter(
     prefix="/flights",
@@ -25,9 +29,11 @@ router = APIRouter(
     redirect_slashes=True
 )
 
+
 class Order(str, Enum):
     ASCENDING = "ASC"
     DESCENDING = "DESC"
+
 
 class Sort(str, Enum):
     DATE = "date"
@@ -37,52 +43,60 @@ class Sort(str, Enum):
     DURATION = "duration"
     DISTANCE = "distance"
 
-async def check_flight_authorization(id: int, user: User) -> None:
-    res = database.execute_read_query(f"SELECT username FROM flights WHERE id = ?;", [id])
-    flight_username = res[0][0]
 
-    if flight_username != user.username and not user.is_admin:
+async def check_flight_authorization(id: int, user: User, db: Session) -> None:
+    flight = db.query(Flight).filter(Flight.id == id).first()
+    if not flight:
+        raise HTTPException(status_code=404, detail="Flight not found")
+
+    if flight.username != user.username and not user.is_admin:
         raise HTTPException(status_code=403, detail="Only admins can modify other users' flights")
 
+
 # https://en.wikipedia.org/wiki/Haversine_formula
-async def spherical_distance(origin: AirportModel|str, destination: AirportModel|str) -> int:
+async def spherical_distance(origin: AirportModel | str, destination: AirportModel | str) -> int:
     from server.routers.airports import get_airport_from_icao
 
-    # make sure we have object types
+    # make sure we have object types
     if type(origin) == str:
-        origin = await get_airport_from_icao(origin)
+        with SessionLocal() as db:
+            origin = await get_airport_from_icao(origin, db)
     if type(destination) == str:
-        destination = await get_airport_from_icao(destination)
+        with SessionLocal() as db:
+            destination = await get_airport_from_icao(destination, db)
 
     assert type(origin) == AirportModel and type(destination) == AirportModel
 
     if not origin.latitude or not origin.longitude or not destination.latitude or not destination.longitude:
         return 0
 
-    #convert to radian
-    origin_lat = origin.latitude * math.pi / 180.0;
-    origin_lon = origin.longitude * math.pi / 180.0;
-    destination_lat = destination.latitude * math.pi / 180.0;
-    destination_lon = destination.longitude * math.pi / 180.0;
+    # convert to radian
+    origin_lat = origin.latitude * math.pi / 180.0
+    origin_lon = origin.longitude * math.pi / 180.0
+    destination_lat = destination.latitude * math.pi / 180.0
+    destination_lon = destination.longitude * math.pi / 180.0
 
     # get deltas
-    delta_lat = origin_lat - destination_lat;
-    delta_lon = origin_lon - destination_lon;
+    delta_lat = origin_lat - destination_lat
+    delta_lon = origin_lon - destination_lon
 
     # apply Haversine formulas
-    hav_delta_lat = math.sin(delta_lat / 2) ** 2;
-    hav_delta_lon = math.sin(delta_lon / 2) ** 2;
+    hav_delta_lat = math.sin(delta_lat / 2) ** 2
+    hav_delta_lon = math.sin(delta_lon / 2) ** 2
 
     hav_theta = hav_delta_lat + (hav_delta_lon * math.cos(origin_lat) * math.cos(destination_lat))
 
-    earth_radius = 6371; # km
-    distance = 2 * earth_radius * math.asin(math.sqrt(hav_theta));
+    earth_radius = 6371  # km
+    distance = 2 * earth_radius * math.asin(math.sqrt(hav_theta))
 
-    return round(distance);
+    return round(distance)
 
-def to_utc(dt: datetime.datetime, airport: str|AirportModel) -> datetime.datetime:
+
+def to_utc(dt: datetime.datetime, airport: str | AirportModel) -> datetime.datetime:
     if type(airport) != AirportModel:
-        tz_name = database.execute_read_query("SELECT timezone FROM airports WHERE icao = ?;", [airport])[0][0]
+        with SessionLocal() as db:
+            ap = db.query(Airport).filter(Airport.icao == airport).first()
+            tz_name = ap.timezone if ap else "UTC"
     else:
         tz_name = airport.timezone
 
@@ -90,6 +104,7 @@ def to_utc(dt: datetime.datetime, airport: str|AirportModel) -> datetime.datetim
     utc_dt = tz.localize(dt).astimezone(pytz.utc)
 
     return utc_dt
+
 
 def duration(departure: datetime.datetime, arrival: datetime.datetime) -> int:
     if arrival.time() <= departure.time():
@@ -100,48 +115,54 @@ def duration(departure: datetime.datetime, arrival: datetime.datetime) -> int:
     delta_minutes = delta.seconds // 60
     return delta_minutes
 
+
 @router.post("/many", status_code=201)
-async def add_many_flights(flights: list[FlightModel], timezones: bool = True, user: User = Depends(get_current_user)) -> int:
+async def add_many_flights(flights: list[FlightModel], timezones: bool = True, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> int:
     creator_flight_id = -1
     for flight in flights:
         if flight.username != user.username and not user.is_admin:
             raise HTTPException(status_code=403, detail="Only admins can add flights for other users")
 
-        flight_id = await add_flight(flight, timezones, user)
+        flight_id = await add_flight(flight, timezones, user, db)
         if flight.username == user.username:
             creator_flight_id = flight_id
 
     return creator_flight_id
 
+
 @router.post("/trip", status_code=201)
-async def add_trip(flights: list[FlightModel], timezones: bool = True, user: User = Depends(get_current_user)) -> int:
+async def add_trip(flights: list[FlightModel], timezones: bool = True, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> int:
     if len(flights) < 1:
         raise HTTPException(status_code=400, detail="Trip must have at least one flight")
 
     flight_ids = []
     for flight in flights:
-        flight_id = await add_flight(flight, timezones, user)
+        flight_id = await add_flight(flight, timezones, user, db)
         flight_ids.append(flight_id)
 
     # Link flights via connection: flight N connects to flight N+1
     for i in range(len(flight_ids) - 1):
-        database.execute_query(
-            "UPDATE flights SET connection = ? WHERE id = ?;",
-            [flight_ids[i + 1], flight_ids[i]]
+        db.query(Flight).filter(Flight.id == flight_ids[i]).update(
+            {Flight.connection: flight_ids[i + 1]}
         )
+    db.commit()
 
     return flight_ids[0]
 
+
 @router.get("/check-duplicate", status_code=200)
-async def check_duplicate(date: str, origin: str, destination: str, user: User = Depends(get_current_user)) -> dict:
-    res = database.execute_read_query(
-        "SELECT id FROM flights WHERE date = ? AND UPPER(origin) = UPPER(?) AND UPPER(destination) = UPPER(?) AND username = ?;",
-        [date, origin, destination, user.username]
-    )
-    return {"duplicate": len(res) > 0, "count": len(res)}
+async def check_duplicate(date: str, origin: str, destination: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    count = db.query(Flight).filter(
+        Flight.date == date,
+        func.upper(Flight.origin) == func.upper(origin),
+        func.upper(Flight.destination) == func.upper(destination),
+        Flight.username == user.username
+    ).count()
+    return {"duplicate": count > 0, "count": count}
+
 
 @router.post("", status_code=201)
-async def add_flight(flight: FlightModel, timezones: bool = True, user: User = Depends(get_current_user)) -> int:
+async def add_flight(flight: FlightModel, timezones: bool = True, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> int:
     # only admins may add flights for other users
     if flight.username != user.username and not user.is_admin:
         raise HTTPException(status_code=403, detail="Only admins can add flights for other users")
@@ -156,75 +177,104 @@ async def add_flight(flight: FlightModel, timezones: bool = True, user: User = D
 
     # if duration not given, calculate it
     if not flight.duration and flight.departure_time and flight.arrival_time:
-        # create datetime objects
-        departure = datetime.datetime.strptime(f"{flight.date} {flight.departure_time}", "%Y-%m-%d %H:%M")
-        arrival = datetime.datetime.strptime(f"{flight.arrival_date if flight.arrival_date else flight.date} {flight.arrival_time}", "%Y-%m-%d %H:%M")
+        departure_dt = datetime.datetime.strptime(f"{flight.date} {flight.departure_time}", "%Y-%m-%d %H:%M")
+        arrival_dt = datetime.datetime.strptime(f"{flight.arrival_date if flight.arrival_date else flight.date} {flight.arrival_time}", "%Y-%m-%d %H:%M")
 
-        # if using timezones, convert to UTC
         if timezones:
-            departure = to_utc(departure, flight.origin)
-            arrival = to_utc(arrival, flight.destination)
+            departure_dt = to_utc(departure_dt, flight.origin)
+            arrival_dt = to_utc(arrival_dt, flight.destination)
 
-        flight.duration = duration(departure, arrival)
+        flight.duration = duration(departure_dt, arrival_dt)
 
-    columns = FlightModel.get_attributes(ignore=["id"])
+    # Build the ORM object
+    username_val = flight.username if flight.username else user.username
 
-    query = "INSERT INTO flights ("
-    for attr in columns:
-        query += f"{attr},"
-    query = query[:-1]
-    query += ") VALUES (" + ('?,' * len(columns))
-    query = query[:-1]
-    query += ") RETURNING id;"
+    # Extract ICAO strings from AirportModel/AirlineModel objects
+    origin_val = flight.origin.icao if type(flight.origin) == AirportModel else flight.origin
+    dest_val = flight.destination.icao if type(flight.destination) == AirportModel else flight.destination
+    airline_val = None
+    if flight.airline:
+        airline_val = flight.airline.icao if type(flight.airline) == AirlineModel else flight.airline
 
-
-    explicit = {"username": user.username} if not flight.username else {}
-    values = flight.get_values(ignore=["id"], explicit=explicit)
-
-    new_id = database.execute_query(query, values)[0]
-
-    database.execute_query(
-        "INSERT INTO audit_logs (username, action, flight_id, details) VALUES (?, ?, ?, ?);",
-        [user.username, "create", new_id, f"{flight.origin} -> {flight.destination} on {flight.date}"]
+    new_flight = Flight(
+        username=username_val,
+        date=flight.date.isoformat() if isinstance(flight.date, datetime.date) else flight.date,
+        origin=origin_val,
+        destination=dest_val,
+        departure_time=flight.departure_time,
+        arrival_time=flight.arrival_time,
+        arrival_date=flight.arrival_date.isoformat() if isinstance(flight.arrival_date, datetime.date) else flight.arrival_date,
+        seat=flight.seat.value if flight.seat else None,
+        seat_number=flight.seat_number,
+        aircraft_side=flight.aircraft_side.value if flight.aircraft_side else None,
+        ticket_class=flight.ticket_class.value if flight.ticket_class else None,
+        purpose=flight.purpose.value if flight.purpose else None,
+        duration=flight.duration,
+        distance=flight.distance,
+        airplane=flight.airplane,
+        airline=airline_val,
+        tail_number=flight.tail_number,
+        flight_number=flight.flight_number,
+        notes=flight.notes,
+        cost=flight.cost,
+        currency=flight.currency,
+        rating=flight.rating,
+        connection=flight.connection,
     )
+
+    db.add(new_flight)
+    db.flush()  # Get the auto-generated id
+    new_id = new_flight.id
+
+    # Audit log
+    audit = AuditLog(
+        username=user.username,
+        action="create",
+        flight_id=new_id,
+        details=f"{origin_val} -> {dest_val} on {flight.date}"
+    )
+    db.add(audit)
+    db.commit()
 
     return new_id
 
+
 class FlightPatchModel(CustomModel):
-    date:             datetime.date|None = None
-    origin:           AirportModel|str|None = None
-    destination:      AirportModel|str|None = None
-    departure_time:   str|None = None
-    arrival_time:     str|None = None
-    arrival_date:     datetime.date|None = None
-    seat:             SeatType|None = None
-    aircraft_side:    AircraftSide|None = None
-    ticket_class:     ClassType|None = None
-    purpose:          FlightPurpose|None = None
-    duration:         int|None = None
-    distance:         int|None = None
-    airplane:         str|None = None
-    airline:          AirlineModel|str|None = None
-    tail_number:      str|None = None
-    flight_number:    str|None = None
-    notes:            str|None = None
-    rating:           int|None = None
-    connection:       int|None = None
+    date: datetime.date | None = None
+    origin: AirportModel | str | None = None
+    destination: AirportModel | str | None = None
+    departure_time: str | None = None
+    arrival_time: str | None = None
+    arrival_date: datetime.date | None = None
+    seat: SeatType | None = None
+    aircraft_side: AircraftSide | None = None
+    ticket_class: ClassType | None = None
+    purpose: FlightPurpose | None = None
+    duration: int | None = None
+    distance: int | None = None
+    airplane: str | None = None
+    airline: AirlineModel | str | None = None
+    tail_number: str | None = None
+    flight_number: str | None = None
+    notes: str | None = None
+    rating: int | None = None
+    connection: int | None = None
+
 
 @router.patch("", status_code=200)
 async def update_flight(id: int,
                         new_flight: FlightPatchModel,
                         timezones: bool = True,
-                        user: User = Depends(get_current_user)) -> int:
-    await check_flight_authorization(id, user)
+                        user: User = Depends(get_current_user),
+                        db: Session = Depends(get_db)) -> int:
+    await check_flight_authorization(id, user, db)
 
     if new_flight.empty():
         return id
 
-    # if airports changed, update distance (unless specified)
+    # if airports changed, update distance (unless specified)
     if new_flight.origin or new_flight.destination and not new_flight.distance:
-        # first must have both airports
-        original_flight = await get_flights(id=id)
+        original_flight = await get_flights(id=id, db=db)
         assert type(original_flight) == FlightModel
 
         new_origin = new_flight.origin if new_flight.origin else original_flight.origin
@@ -235,7 +285,7 @@ async def update_flight(id: int,
     # if arrival / departure date or arrival date changed, update duration (unless specified)
     if not new_flight.duration:
         if new_flight.date or new_flight.departure_time or new_flight.arrival_date or new_flight.arrival_time:
-            original_flight = await get_flights(id=id)
+            original_flight = await get_flights(id=id, db=db)
             assert type(original_flight) == FlightModel
 
             new_departure_date = new_flight.date if new_flight.date else original_flight.date
@@ -243,112 +293,148 @@ async def update_flight(id: int,
             new_arrival_date = new_flight.arrival_date if new_flight.arrival_date else original_flight.arrival_date
             new_arrival_time = new_flight.arrival_time if new_flight.arrival_time else original_flight.arrival_time
 
-            # if arrival or departure times still not available, skip
             if new_arrival_time and new_departure_time:
-                # create datetime objects
                 new_departure = datetime.datetime.strptime(f"{new_departure_date} {new_departure_time}", "%Y-%m-%d %H:%M")
                 new_arrival = datetime.datetime.strptime(f"{new_arrival_date if new_arrival_date else new_departure_date} {new_arrival_time}", "%Y-%m-%d %H:%M")
 
-                # if using timezones, convert to UTC
                 if timezones:
                     new_departure = to_utc(new_departure, new_flight.origin if new_flight.origin else original_flight.origin)
                     new_arrival = to_utc(new_arrival, new_flight.destination if new_flight.destination else original_flight.destination)
 
                 new_flight.duration = duration(new_departure, new_arrival)
 
-    query = "UPDATE flights SET "
-
+    # Build update dict
+    update_data = {}
     for attr in FlightPatchModel.get_attributes():
         value = getattr(new_flight, attr)
-        if value:
-            query += f"{attr}=?," if value else ""
+        if value is not None:
+            # Convert types for DB storage
+            if isinstance(value, AirportModel):
+                value = value.icao
+            elif isinstance(value, AirlineModel):
+                value = value.icao
+            elif isinstance(value, datetime.date):
+                value = value.isoformat()
+            elif hasattr(value, 'value'):  # Enum
+                value = value.value
+            update_data[attr] = value
 
-    if query[-1] == ',':
-        query = query[:-1]
+    if update_data:
+        db.query(Flight).filter(Flight.id == id).update(update_data)
 
-    query += f" WHERE id = {str(id)} RETURNING id;"
-
-    values = [value for value in new_flight.get_values() if value is not None]
-
-    new_id = database.execute_query(query, values)[0]
-
+    # Audit log
     changed = [attr for attr in FlightPatchModel.get_attributes() if getattr(new_flight, attr) is not None]
-    database.execute_query(
-        "INSERT INTO audit_logs (username, action, flight_id, details) VALUES (?, ?, ?, ?);",
-        [user.username, "edit", id, f"Updated: {', '.join(changed)}"]
+    audit = AuditLog(
+        username=user.username,
+        action="edit",
+        flight_id=id,
+        details=f"Updated: {', '.join(changed)}"
     )
+    db.add(audit)
+    db.commit()
 
-    return new_id
+    return id
+
 
 @router.delete("", status_code=200)
-async def delete_flight(id: int, user: User = Depends(get_current_user)) -> int:
-    await check_flight_authorization(id, user)
+async def delete_flight(id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> int:
+    await check_flight_authorization(id, user, db)
 
-    deleted_id = database.execute_query("DELETE FROM flights WHERE id = ? RETURNING id;", [id])[0]
+    db.query(Flight).filter(Flight.id == id).delete()
 
-    database.execute_query(
-        "INSERT INTO audit_logs (username, action, flight_id, details) VALUES (?, ?, ?, ?);",
-        [user.username, "delete", id, None]
+    audit = AuditLog(
+        username=user.username,
+        action="delete",
+        flight_id=id,
+        details=None
     )
+    db.add(audit)
+    db.commit()
 
-    return deleted_id
+    return id
+
 
 @router.post("/bulk-delete", status_code=200)
-async def bulk_delete_flights(ids: list[int], user: User = Depends(get_current_user)) -> int:
+async def bulk_delete_flights(ids: list[int], user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> int:
     for flight_id in ids:
-        await check_flight_authorization(flight_id, user)
+        await check_flight_authorization(flight_id, user, db)
     for flight_id in ids:
-        database.execute_query("DELETE FROM flights WHERE id = ?;", [flight_id])
-    database.execute_query(
-        "INSERT INTO audit_logs (username, action, flight_id, details) VALUES (?, ?, ?, ?);",
-        [user.username, "bulk-delete", None, f"Deleted {len(ids)} flights: {ids}"]
+        db.query(Flight).filter(Flight.id == flight_id).delete()
+
+    audit = AuditLog(
+        username=user.username,
+        action="bulk-delete",
+        flight_id=None,
+        details=f"Deleted {len(ids)} flights: {ids}"
     )
+    db.add(audit)
+    db.commit()
+
     return len(ids)
 
+
 class BulkEditPayload(CustomModel):
-    ids:              list[int]
-    ticket_class:     ClassType|None = None
-    purpose:          FlightPurpose|None = None
-    seat:             SeatType|None = None
-    aircraft_side:    AircraftSide|None = None
-    airline:          str|None = None
+    ids: list[int]
+    ticket_class: ClassType | None = None
+    purpose: FlightPurpose | None = None
+    seat: SeatType | None = None
+    aircraft_side: AircraftSide | None = None
+    airline: str | None = None
+
 
 @router.post("/bulk-edit", status_code=200)
-async def bulk_edit_flights(payload: BulkEditPayload, user: User = Depends(get_current_user)) -> int:
+async def bulk_edit_flights(payload: BulkEditPayload, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> int:
     for flight_id in payload.ids:
-        await check_flight_authorization(flight_id, user)
+        await check_flight_authorization(flight_id, user, db)
 
-    set_parts = []
-    values = []
+    update_data = {}
+    set_parts_desc = []
     for field in ["ticket_class", "purpose", "seat", "aircraft_side", "airline"]:
         val = getattr(payload, field)
         if val is not None:
-            set_parts.append(f"{field} = ?")
-            values.append(val.value if hasattr(val, 'value') else val)
+            update_data[field] = val.value if hasattr(val, 'value') else val
+            set_parts_desc.append(f"{field} = ?")
 
-    if not set_parts:
+    if not update_data:
         return 0
 
-    placeholders = ",".join(["?"] * len(payload.ids))
-    query = f"UPDATE flights SET {', '.join(set_parts)} WHERE id IN ({placeholders});"
-    database.execute_query(query, values + payload.ids)
-    database.execute_query(
-        "INSERT INTO audit_logs (username, action, flight_id, details) VALUES (?, ?, ?, ?);",
-        [user.username, "bulk-edit", None, f"Edited {len(payload.ids)} flights: {', '.join(set_parts)}"]
+    db.query(Flight).filter(Flight.id.in_(payload.ids)).update(update_data, synchronize_session='fetch')
+
+    audit = AuditLog(
+        username=user.username,
+        action="bulk-edit",
+        flight_id=None,
+        details=f"Edited {len(payload.ids)} flights: {', '.join(set_parts_desc)}"
     )
+    db.add(audit)
+    db.commit()
+
     return len(payload.ids)
 
+
 @router.get("/audit-log", status_code=200)
-async def get_audit_log(limit: int = 50, user: User = Depends(get_current_user)) -> list[dict]:
-    res = database.execute_read_query(
-        "SELECT id, timestamp, username, action, flight_id, details FROM audit_logs WHERE username = ? ORDER BY timestamp DESC LIMIT ?;",
-        [user.username, limit]
-    )
-    return [{"id": r[0], "timestamp": r[1], "username": r[2], "action": r[3], "flightId": r[4], "details": r[5]} for r in res]
+async def get_audit_log(limit: int = 50, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
+    from server.db.models import AuditLog as AuditLogModel
+    results = db.query(AuditLogModel).filter(
+        AuditLogModel.username == user.username
+    ).order_by(AuditLogModel.timestamp.desc()).limit(limit).all()
+
+    return [
+        {
+            "id": r.id,
+            "timestamp": str(r.timestamp) if r.timestamp else None,
+            "username": r.username,
+            "action": r.action,
+            "flightId": r.flight_id,
+            "details": r.details,
+        }
+        for r in results
+    ]
+
 
 @router.post("/{flight_id}/photo", status_code=201)
-async def upload_photo(flight_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user)):
-    await check_flight_authorization(flight_id, user)
+async def upload_photo(flight_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    await check_flight_authorization(flight_id, user, db)
 
     allowed = {"image/jpeg", "image/png", "image/webp", "image/gif"}
     if file.content_type not in allowed:
@@ -373,8 +459,9 @@ async def upload_photo(flight_id: int, file: UploadFile = File(...), user: User 
 
     return {"path": f"/flights/{flight_id}/photo"}
 
+
 @router.get("/photos/all", status_code=200)
-async def get_all_photos(user: User = Depends(get_current_user)) -> list[dict]:
+async def get_all_photos(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
     """List all flight IDs that have photos for the current user."""
     photo_base = os.path.join(DATA_PATH, "photos")
     if not os.path.isdir(photo_base):
@@ -394,15 +481,13 @@ async def get_all_photos(user: User = Depends(get_current_user)) -> list[dict]:
         return []
 
     # Filter to only this user's flights and get basic info
-    placeholders = ",".join(["?"] * len(flight_ids))
-    res = database.execute_read_query(f"""
-        SELECT f.id, f.date, f.origin, f.destination
-        FROM flights f
-        WHERE f.id IN ({placeholders}) AND f.username = ?
-        ORDER BY f.date DESC;
-    """, flight_ids + [user.username])
+    results = db.query(Flight.id, Flight.date, Flight.origin, Flight.destination).filter(
+        Flight.id.in_(flight_ids),
+        Flight.username == user.username
+    ).order_by(Flight.date.desc()).all()
 
-    return [{"id": r[0], "date": r[1], "origin": r[2], "destination": r[3]} for r in res]
+    return [{"id": r[0], "date": r[1], "origin": r[2], "destination": r[3]} for r in results]
+
 
 @router.get("/{flight_id}/photo", status_code=200)
 async def get_photo(flight_id: int):
@@ -417,9 +502,10 @@ async def get_photo(flight_id: int):
     photo_path = os.path.join(photo_dir, files[0])
     return FileResponse(photo_path)
 
+
 @router.delete("/{flight_id}/photo", status_code=200)
-async def delete_photo(flight_id: int, user: User = Depends(get_current_user)):
-    await check_flight_authorization(flight_id, user)
+async def delete_photo(flight_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    await check_flight_authorization(flight_id, user, db)
 
     photo_dir = os.path.join(DATA_PATH, "photos", str(flight_id))
     if os.path.isdir(photo_dir):
@@ -429,22 +515,25 @@ async def delete_photo(flight_id: int, user: User = Depends(get_current_user)):
 
     return {"status": "ok"}
 
+
 @router.get("", status_code=200)
-async def get_flights(id: int|None = None,
+async def get_flights(id: int | None = None,
                       metric: bool = True,
                       limit: int = 50,
                       offset: int = 0,
                       order: Order = Order.DESCENDING,
                       sort: Sort = Sort.DATE,
-                      start: datetime.date|None = None,
-                      end: datetime.date|None = None,
-                      origin: str|None = None,
-                      destination: str|None = None,
-                      username: str|None = None,
-                      user: User = Depends(get_current_user)) -> list[FlightModel]|FlightModel:
+                      start: datetime.date | None = None,
+                      end: datetime.date | None = None,
+                      origin: str | None = None,
+                      destination: str | None = None,
+                      username: str | None = None,
+                      user: User = Depends(get_current_user),
+                      db: Session = Depends(get_db)) -> list[FlightModel] | FlightModel:
 
     username_filter = None if id else username if username else user.username
 
+    # Use raw SQL for this complex join query to preserve exact behavior
     if sort == Sort.DATE:
         sort_clause = f"ORDER BY f.date {order.value}, f.departure_time {order.value}"
     else:
@@ -460,27 +549,33 @@ async def get_flights(id: int|None = None,
         JOIN airports o ON UPPER(f.origin) = o.icao
         JOIN airports d ON UPPER(f.destination) = d.icao
         LEFT JOIN airlines a ON UPPER(f.airline) = a.icao
-        WHERE (? IS NULL OR f.id = ?)
-        AND   (? IS NULL OR f.username = ?)
-        AND   (? IS NULL OR JULIANDAY(date) >= JULIANDAY(?))
-        AND   (? IS NULL OR JULIANDAY(date) <= JULIANDAY(?))
-        AND   (? IS NULL OR f.origin = UPPER(?))
-        AND   (? IS NULL OR f.destination = UPPER(?))
+        WHERE (:id IS NULL OR f.id = :id)
+        AND   (:username IS NULL OR f.username = :username)
+        AND   (:start IS NULL OR JULIANDAY(date) >= JULIANDAY(:start))
+        AND   (:end IS NULL OR JULIANDAY(date) <= JULIANDAY(:end))
+        AND   (:origin IS NULL OR f.origin = UPPER(:origin))
+        AND   (:destination IS NULL OR f.destination = UPPER(:destination))
         {sort_clause}
-        LIMIT {limit}
-        OFFSET {offset};"""
+        LIMIT :limit
+        OFFSET :offset;"""
 
-    values = []
-    for value in [id, username_filter, start, end, origin, destination]:
-        values.append(value)
-        values.append(value)
+    params = {
+        "id": id,
+        "username": username_filter,
+        "start": str(start) if start else None,
+        "end": str(end) if end else None,
+        "origin": origin,
+        "destination": destination,
+        "limit": limit,
+        "offset": offset,
+    }
 
-    res = database.execute_read_query(query, values);
+    res = db.execute(text(query), params).fetchall()
 
     # get rid of origin, destination, and airline ICAOs for proper conversion
-    # after this, each flight_db is in the format:
-    # [id, username, date, departure_time, ..., AirportModel, AirportModel, AirlineModel]
-    res = [ db_flight[:3] + db_flight[5:15] + db_flight[16:] for db_flight in res ]
+    # after this, each flight_db is in the format:
+    # [id, username, date, departure_time, ..., AirportModel, AirportModel, AirlineModel]
+    res = [db_flight[:3] + db_flight[5:15] + db_flight[16:] for db_flight in res]
 
     flights = []
 
@@ -490,16 +585,16 @@ async def get_flights(id: int|None = None,
         airline_length = len(AirlineModel.get_attributes())
 
         db_origin = db_flight[begin:begin + airport_length]
-        db_destination = db_flight[begin + airport_length:begin + 2*airport_length]
-        db_airline = db_flight[begin + 2*airport_length:begin + 2*airport_length + airline_length]
+        db_destination = db_flight[begin + airport_length:begin + 2 * airport_length]
+        db_airline = db_flight[begin + 2 * airport_length:begin + 2 * airport_length + airline_length]
 
-        origin = AirportModel.from_database(db_origin)
-        destination = AirportModel.from_database(db_destination)
-        airline = AirlineModel.from_database(db_airline) if db_airline[0] != None else None
+        origin_obj = AirportModel.from_database(db_origin)
+        destination_obj = AirportModel.from_database(db_destination)
+        airline_obj = AirlineModel.from_database(db_airline) if db_airline[0] != None else None
 
-        flight = FlightModel.from_database(db_flight, { "origin": origin,
-                                                        "destination": destination,
-                                                        "airline": airline } )
+        flight = FlightModel.from_database(db_flight, {"origin": origin_obj,
+                                                        "destination": destination_obj,
+                                                        "airline": airline_obj})
 
         if not metric and flight.distance:
             flight.distance = round(flight.distance * 0.6213711922)
@@ -511,7 +606,8 @@ async def get_flights(id: int|None = None,
 
     if id:
         return FlightModel.model_validate(flights[0])
-    return [ FlightModel.model_validate(flight) for flight in flights ]
+    return [FlightModel.model_validate(flight) for flight in flights]
+
 
 @router.post("/connections", status_code=200)
 async def compute_connections(user: User = Depends(get_current_user)):
@@ -577,18 +673,21 @@ async def compute_connections(user: User = Depends(get_current_user)):
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
+
 @router.post("/airlines_from_callsigns", status_code=200)
-async def fetch_airlines_from_callsigns(user: User = Depends(get_current_user)):
+async def fetch_airlines_from_callsigns(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if not ENABLE_EXTERNAL_APIS:
         raise HTTPException(status_code=400, detail="This endpoint relies on the use of an external API, which you have opted out of.")
 
     import requests as req
 
-    res = database.execute_read_query("""SELECT flight_number, COUNT(*)
-                                         FROM flights
-                                         WHERE flight_number IS NOT NULL AND airline IS NULL AND username = ?
-                                         GROUP BY flight_number;""", [user.username])
-    callsigns = list(res)
+    results = db.query(Flight.flight_number, func.count(Flight.id)).filter(
+        Flight.flight_number.isnot(None),
+        Flight.airline.is_(None),
+        Flight.username == user.username
+    ).group_by(Flight.flight_number).all()
+
+    callsigns = list(results)
     username = user.username
 
     def generate():
@@ -639,6 +738,7 @@ async def fetch_airlines_from_callsigns(user: User = Depends(get_current_user)):
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
+
 def _apply_enrichment(flight: dict, aircraft_text, registration, real_dep, real_arr,
                       origin_tz_offset, dest_tz_offset, group_detail: list) -> tuple[list, list]:
     """Build SET clause and values for NULL fields that have data to backfill."""
@@ -686,7 +786,7 @@ def _apply_enrichment(flight: dict, aircraft_text, registration, real_dep, real_
 
 
 @router.post("/enrich", status_code=200)
-async def enrich_flight_details(user: User = Depends(get_current_user)):
+async def enrich_flight_details(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Backfill missing flight details from FR24 (recent) + Flightera (older)."""
     if not ENABLE_EXTERNAL_APIS:
         raise HTTPException(status_code=400, detail="This endpoint relies on the use of an external API, which you have opted out of.")
@@ -695,17 +795,16 @@ async def enrich_flight_details(user: User = Depends(get_current_user)):
     from collections import defaultdict
     from server.internal.flightradar24 import lookup_flight_history, lookup_flightera
 
-    rows = database.execute_read_query(
-        """SELECT id, flight_number, date, airplane, tail_number,
-                  departure_time, arrival_time, duration
-           FROM flights
-           WHERE flight_number IS NOT NULL
-             AND username = ?
-             AND (airplane IS NULL OR tail_number IS NULL
-                  OR departure_time IS NULL OR arrival_time IS NULL
-                  OR duration IS NULL);""",
-        [user.username]
-    )
+    rows = db.query(
+        Flight.id, Flight.flight_number, Flight.date, Flight.airplane,
+        Flight.tail_number, Flight.departure_time, Flight.arrival_time, Flight.duration
+    ).filter(
+        Flight.flight_number.isnot(None),
+        Flight.username == user.username,
+        (Flight.airplane.is_(None)) | (Flight.tail_number.is_(None)) |
+        (Flight.departure_time.is_(None)) | (Flight.arrival_time.is_(None)) |
+        (Flight.duration.is_(None))
+    ).all()
 
     groups: dict[str, list] = defaultdict(list)
     for row in rows:
@@ -757,7 +856,7 @@ async def enrich_flight_details(user: User = Depends(get_current_user)):
             for flight in flight_list:
                 match = fr24_date_map.get(flight["date"])
                 if match:
-                    # FR24 match — extract fields
+                    # FR24 match -- extract fields
                     aircraft_text = (match.get("aircraft", {}).get("model", {}).get("text") or None)
                     registration = (match.get("aircraft", {}).get("registration") or None)
                     real_dep = match.get("time", {}).get("real", {}).get("departure")

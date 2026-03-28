@@ -1,9 +1,12 @@
-from server.database import database
+from server.db.session import get_db
+from server.db.models import Flight, Airport
 from server.models import User
 from server.auth.users import get_current_user
 
 from server.models import CustomModel
 from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from sqlalchemy import text
 from pathlib import Path
 import json
 
@@ -38,22 +41,19 @@ class Trajectory(CustomModel):
         return self.first == other.second and self.second == other.first
 
 @router.get("/world", status_code=200)
-async def get_world_geojson(visited: bool = False, user: User = Depends(get_current_user)) -> object:
+async def get_world_geojson(visited: bool = False, user: User = Depends(get_current_user),
+                            db: Session = Depends(get_db)) -> object:
     geojson_path = Path(__file__).parent.parent.parent / 'data' / 'world.geo.json'
     geojson_content = geojson_path.read_text()
     geojson = json.loads(geojson_content)
 
     if visited:
-        # compute and add 'visited' property to countries
-        # this query selects all airports that:
-        #   - are the destination of a flight without connection; or
-        #   - are the origin of a flight which is not a connection of another flight
-        query = """
+        res = db.execute(text("""
             WITH visited_airports AS (
                 SELECT destination AS icao
                 FROM flights
                 WHERE connection IS NULL
-                AND username = ?
+                AND username = :username
 
                 UNION
 
@@ -64,15 +64,15 @@ async def get_world_geojson(visited: bool = False, user: User = Depends(get_curr
                     FROM flights AS prev
                     WHERE prev.connection = f.id
                 )
-                AND username = ?
+                AND username = :username
             )
 
             SELECT DISTINCT a.country
             FROM visited_airports AS va
-            JOIN airports AS a ON a.icao = va.icao;"""
+            JOIN airports AS a ON a.icao = va.icao;
+        """), {"username": user.username}).fetchall()
 
-        res = database.execute_read_query(query, [user.username]*2)
-        visited_countries = [ r[0] for r in res ]
+        visited_countries = [r[0] for r in res]
 
         for feature in geojson.get("features", []):
             country_name = feature.get("properties", {}).get("subunit")
@@ -81,12 +81,23 @@ async def get_world_geojson(visited: bool = False, user: User = Depends(get_curr
     return geojson
 
 @router.get("/decorations", status_code=200)
-async def get_flights_decorations(flight_id: int|None = None, username: str|None = None, user: User = Depends(get_current_user)) -> tuple[list[Trajectory], list[Coord]]:
-    return await get_decorations(flight_id=flight_id, username=username, user=user)
+async def get_flights_decorations(flight_id: int|None = None, username: str|None = None,
+                                  user: User = Depends(get_current_user),
+                                  db: Session = Depends(get_db)) -> tuple[list[Trajectory], list[Coord]]:
+    return await get_decorations(flight_id=flight_id, username=username, user=user, db=db)
 
-async def get_decorations(flight_id: int|None = None, username: str|None = None, user: User = None) -> tuple[list[Trajectory], list[Coord]]:
+async def get_decorations(flight_id: int|None = None, username: str|None = None,
+                          user: User = None, db: Session = None) -> tuple[list[Trajectory], list[Coord]]:
+    from server.db.session import SessionLocal
+
     filter_username = username if username else user.username
-    flight_filter = f" AND f.id = {flight_id}" if flight_id != None else ""
+
+    # Build the query with optional flight_id filter
+    flight_filter = ""
+    params: dict = {"username": filter_username}
+    if flight_id is not None:
+        flight_filter = " AND f.id = :flight_id"
+        params["flight_id"] = flight_id
 
     query = f"""
         SELECT o.latitude, o.longitude,
@@ -97,10 +108,15 @@ async def get_decorations(flight_id: int|None = None, username: str|None = None,
         FROM flights f
         JOIN airports o ON UPPER(f.origin) = o.icao
         JOIN airports d ON UPPER(f.destination) = d.icao
-        WHERE username = ?
+        WHERE username = :username
         {flight_filter};"""
 
-    res = database.execute_read_query(query, [filter_username]);
+    # Use provided db session or create a new one
+    if db is not None:
+        res = db.execute(text(query), params).fetchall()
+    else:
+        with SessionLocal() as session:
+            res = session.execute(text(query), params).fetchall()
 
     lines: list[Trajectory] = []
     coordinates: list[Coord] = []
@@ -126,7 +142,7 @@ async def get_decorations(flight_id: int|None = None, username: str|None = None,
         line = Trajectory(first=origin_coords, second=destination_coords, frequency=1,
                          origin_icao=row[5], dest_icao=row[8])
 
-        # compute marker frequencies
+        # compute marker frequencies
         found_origin = False
         found_destination = False
         for coord in coordinates:
@@ -147,7 +163,7 @@ async def get_decorations(flight_id: int|None = None, username: str|None = None,
         if not found_destination:
             coordinates.append(destination_coords)
 
-        # compute trajectory frequencies
+        # compute trajectory frequencies
         found = False
         for l in lines:
             if l == line:

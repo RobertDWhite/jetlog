@@ -1,10 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { Heading, Spinner } from '../components/Elements';
 import { Statistics, Coord, Trajectory } from '../models';
-import { ComposableMap, ZoomableGroup, Geographies, Geography, Marker, Line } from 'react-simple-maps';
+import MapGL, { Source, Layer, MapRef, useControl } from 'react-map-gl/maplibre';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import { MapboxOverlay } from '@deck.gl/mapbox';
+import { ArcLayer, ScatterplotLayer } from '@deck.gl/layers';
 import API from '../api';
+
+const DARK_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+
+function DeckGLOverlay(props: any) {
+    const overlay = useControl(() => new MapboxOverlay(props));
+    overlay.setProps(props);
+    return null;
+}
 
 interface PublicProfileData {
     username: string;
@@ -14,7 +26,8 @@ interface PublicProfileData {
 }
 
 function ProfileMap({ lines, markers }: { lines: Trajectory[]; markers: Coord[] }) {
-    const [world, setWorld] = useState<object>();
+    const [world, setWorld] = useState<any>(null);
+    const mapRef = useRef<MapRef>(null);
 
     useEffect(() => {
         API.get('/geography/world?visited=false')
@@ -22,32 +35,81 @@ function ProfileMap({ lines, markers }: { lines: Trajectory[]; markers: Coord[] 
         .catch(() => {});
     }, []);
 
-    if (!world) return null;
+    const layers = useMemo(() => [
+        new ArcLayer<Trajectory>({
+            id: 'profile-arcs',
+            data: lines,
+            getSourcePosition: (d: Trajectory) => [d.first.longitude, d.first.latitude],
+            getTargetPosition: (d: Trajectory) => [d.second.longitude, d.second.latitude],
+            getSourceColor: [255, 85, 51, 200],
+            getTargetColor: [255, 85, 51, 200],
+            getWidth: 2,
+            greatCircle: true,
+            getHeight: 0.3,
+            widthMinPixels: 1,
+            widthMaxPixels: 4,
+        }),
+        new ScatterplotLayer<Coord>({
+            id: 'profile-markers',
+            data: markers,
+            getPosition: (d: Coord) => [d.longitude, d.latitude],
+            getRadius: 6000,
+            getFillColor: [255, 165, 0, 255],
+            getLineColor: [255, 165, 0, 255],
+            stroked: true,
+            lineWidthMinPixels: 1,
+            radiusMinPixels: 3,
+            radiusMaxPixels: 8,
+        }),
+    ], [lines, markers]);
+
+    const onMapLoad = useCallback(() => {
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+
+        map.setFog({
+            color: 'rgb(20, 20, 30)',
+            'high-color': 'rgb(30, 40, 70)',
+            'horizon-blend': 0.08,
+            'space-color': 'rgb(8, 10, 16)',
+            'star-intensity': 0.5,
+        });
+    }, []);
+
+    const countryFillLayer: any = {
+        id: 'country-fill',
+        type: 'fill',
+        paint: {
+            'fill-color': 'rgba(0, 0, 0, 0)',
+            'fill-outline-color': 'rgba(60, 60, 60, 0.5)',
+        },
+    };
 
     return (
-        <ComposableMap width={1000} height={470}>
-            <ZoomableGroup maxZoom={10} translateExtent={[[0, 0], [1000, 470]]}>
-                <Geographies geography={world}>
-                    {({ geographies }) =>
-                        geographies.map((geo) => (
-                            <Geography key={geo.rsmKey} geography={geo}
-                                       stroke="#111" strokeWidth={0.7} fill="#333" />
-                        ))
-                    }
-                </Geographies>
-                {lines.map((line, i) => (
-                    <Line key={i}
-                          from={[line.first.longitude, line.first.latitude]}
-                          to={[line.second.longitude, line.second.latitude]}
-                          stroke="#FF5533CC" strokeWidth={1} strokeLinecap="round" />
-                ))}
-                {markers.map((marker, i) => (
-                    <Marker key={i} coordinates={[marker.longitude, marker.latitude]}>
-                        <circle r={3} fill="#FFA500" stroke="#FFA500" strokeWidth={0.5} />
-                    </Marker>
-                ))}
-            </ZoomableGroup>
-        </ComposableMap>
+        <div className="w-full" style={{ height: 470 }}>
+            <MapGL
+                ref={mapRef}
+                initialViewState={{
+                    longitude: 0,
+                    latitude: 20,
+                    zoom: 1.5,
+                }}
+                mapStyle={DARK_STYLE}
+                mapLib={maplibregl}
+                projection={{ type: 'globe' }}
+                onLoad={onMapLoad}
+                attributionControl={false}
+                style={{ width: '100%', height: '100%', borderRadius: '0.5rem' }}
+            >
+                {world && (
+                    <Source id="world-countries" type="geojson" data={world}>
+                        <Layer {...countryFillLayer} />
+                    </Source>
+                )}
+
+                <DeckGLOverlay layers={layers} />
+            </MapGL>
+        </div>
     );
 }
 

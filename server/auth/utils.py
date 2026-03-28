@@ -1,4 +1,6 @@
 from server.models import User
+from server.db.session import SessionLocal
+from server.db.models import User as UserModel
 
 from fastapi.security import OAuth2PasswordBearer
 from argon2 import PasswordHasher
@@ -18,12 +20,19 @@ def hash_password(password: str) -> str:
     return password_hash
 
 def get_user(username: str) -> User|None:
-    from server.database import database
+    with SessionLocal() as session:
+        db_user = session.query(UserModel).filter(UserModel.username == username).first()
 
-    result = database.execute_read_query(f"SELECT * FROM users WHERE username = ?;", [username])
+        if not db_user:
+            return None
 
-    if not result:
-        return None
-
-    user = User.from_database(result[0])
-    return User.model_validate(user)
+        user = User(
+            id=db_user.id,
+            username=db_user.username,
+            password_hash=db_user.password_hash,
+            is_admin=bool(db_user.is_admin),
+            public_profile=bool(db_user.public_profile),
+            last_login=db_user.last_login,
+            created_on=db_user.created_on,
+        )
+        return User.model_validate(user)

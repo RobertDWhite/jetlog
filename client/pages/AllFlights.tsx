@@ -4,6 +4,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Heading, Label, Input, Select, Dialog, Whisper, Button, Spinner } from '../components/Elements';
 import UserSelect from '../components/UserSelect';
 import SingleFlight from '../components/SingleFlight';
+import AirlineLogo from '../components/AirlineLogo';
 import { Flight } from '../models'
 
 import API from '../api'
@@ -19,6 +20,46 @@ interface FlightsFilters {
     end?: string;
     username?: string;
 }
+
+function ClassBadge({ ticketClass }: { ticketClass?: string }) {
+    if (!ticketClass) return null;
+
+    const classLower = ticketClass.toLowerCase();
+    let bgColor = 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
+    let label = ticketClass;
+
+    if (classLower === 'first' || classLower === 'private') {
+        bgColor = 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300';
+    } else if (classLower === 'business') {
+        bgColor = 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300';
+    } else if (classLower === 'economy+' || classLower === 'premium economy' || classLower === 'economy plus') {
+        bgColor = 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300';
+    }
+
+    return (
+        <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full capitalize ${bgColor}`}>
+            {label}
+        </span>
+    );
+}
+
+function RatingStars({ rating }: { rating?: number }) {
+    if (!rating || rating <= 0) return null;
+
+    return (
+        <div className="flex items-center gap-0.5">
+            {[1, 2, 3, 4, 5].map(star => (
+                <span
+                    key={star}
+                    className={`text-xs ${star <= rating ? 'text-yellow-400' : 'text-gray-300 dark:text-gray-600'}`}
+                >
+                    {'\u2605'}
+                </span>
+            ))}
+        </div>
+    );
+}
+
 export default function AllFlights() {
     const [searchParams, setSearchParams] = useSearchParams()
     const [filters, setFilters] = useState<FlightsFilters>(() => {
@@ -420,9 +461,17 @@ function FlightsTimeline({ filters }: { filters: FlightsFilters }) {
                                 <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 shadow-sm group-hover:shadow-md transition-shadow border border-gray-200 dark:border-gray-700">
                                     <div className="flex items-center justify-between mb-1">
                                         <span className="text-sm text-gray-500 dark:text-gray-400">{flight.date}</span>
-                                        {flight.airline?.name && (
-                                            <span className="text-xs text-gray-400 dark:text-gray-500">{flight.airline.name}</span>
-                                        )}
+                                        <div className="flex items-center gap-2">
+                                            {flight.ticketClass && (
+                                                <ClassBadge ticketClass={flight.ticketClass} />
+                                            )}
+                                            {flight.airline && (
+                                                <div className="flex items-center gap-1.5">
+                                                    <AirlineLogo iata={flight.airline.iata} icao={flight.airline.icao} size={24} />
+                                                    <span className="text-xs text-gray-400 dark:text-gray-500">{flight.airline.name}</span>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                     <div className="text-lg font-semibold dark:text-gray-100">
                                         {flight.origin.iata || flight.origin.icao}
@@ -432,11 +481,14 @@ function FlightsTimeline({ filters }: { filters: FlightsFilters }) {
                                     <div className="text-sm text-gray-600 dark:text-gray-400">
                                         {flight.origin.municipality} to {flight.destination.municipality}
                                     </div>
-                                    <div className="flex gap-4 mt-2 text-xs text-gray-500 dark:text-gray-500">
+                                    <div className="flex items-center gap-4 mt-2 text-xs text-gray-500 dark:text-gray-500">
                                         {flight.departureTime && <span>{flight.departureTime}</span>}
                                         {flight.duration ? <span>{flight.duration} min</span> : null}
                                         {flight.distance ? <span>{flight.distance.toLocaleString()} {metricUnits === 'false' ? 'mi' : 'km'}</span> : null}
                                         {flight.airplane && <span>{flight.airplane}</span>}
+                                        {flight.rating > 0 && (
+                                            <RatingStars rating={flight.rating} />
+                                        )}
                                     </div>
                                 </div>
                             </div>

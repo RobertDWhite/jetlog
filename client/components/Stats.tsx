@@ -1,7 +1,8 @@
-import React, {useState, useEffect} from 'react';
-import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import React, {useState, useEffect, useMemo} from 'react';
+import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
 
 import { Whisper, Spinner } from './Elements';
+import AirlineLogo from './AirlineLogo';
 import { Statistics } from '../models';
 import ConfigStorage from '../storage/configStorage';
 import API from '../api';
@@ -50,7 +51,7 @@ export function ShortStats() {
     );
 }
 
-function StatFrequency({ object, measure }) {
+function StatFrequency({ object, measure, showAirlineLogo = false }: { object: any; measure: string; showAirlineLogo?: boolean }) {
     if (Object.keys(object).length === 0) {
         return <p>No records found</p>
     };
@@ -59,9 +60,14 @@ function StatFrequency({ object, measure }) {
         <ol className="list-decimal ml-5">
         { Object.keys(object).map((key => {
             return (
-                <li>
-                    <div className="flex flex-wrap justify-between">
-                        <span>{key}</span>
+                <li key={key}>
+                    <div className="flex flex-wrap justify-between items-center">
+                        <div className="flex items-center gap-2">
+                            {showAirlineLogo && (
+                                <AirlineLogo icao={key} size={20} />
+                            )}
+                            <span>{key}</span>
+                        </div>
                         <div className="inline">
                             <Whisper text={`${object[key]} ${measure}`} />
                         </div>
@@ -73,16 +79,23 @@ function StatFrequency({ object, measure }) {
     )
 }
 
+const CHART_GRID_COLOR = 'rgba(107, 114, 128, 0.3)';
+const CHART_TICK_STYLE = { fontSize: 11, fill: '#9CA3AF' };
+
 function FlightsByMonthChart({ data }: { data: { month: string; count: number }[] }) {
     if (!data || data.length === 0) return <p>No data</p>;
 
     return (
         <ResponsiveContainer width="100%" height={200}>
             <BarChart data={data}>
-                <XAxis dataKey="month" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Bar dataKey="count" fill="#EAB308" name="Flights" />
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
+                <XAxis dataKey="month" tick={CHART_TICK_STYLE} interval="preserveStartEnd" />
+                <YAxis allowDecimals={false} tick={CHART_TICK_STYLE} />
+                <Tooltip
+                    contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', color: '#F3F4F6' }}
+                    labelStyle={{ color: '#9CA3AF' }}
+                />
+                <Bar dataKey="count" fill="#60a5fa" name="Flights" radius={[4, 4, 0, 0]} />
             </BarChart>
         </ResponsiveContainer>
     );
@@ -94,11 +107,131 @@ function DistanceByMonthChart({ data, unit }: { data: { month: string; distance:
     return (
         <ResponsiveContainer width="100%" height={200}>
             <AreaChart data={data}>
-                <XAxis dataKey="month" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(value: number) => [value.toLocaleString() + ' ' + unit, 'Distance']} />
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
+                <XAxis dataKey="month" tick={CHART_TICK_STYLE} interval="preserveStartEnd" />
+                <YAxis tick={CHART_TICK_STYLE} />
+                <Tooltip
+                    formatter={(value: number) => [value.toLocaleString() + ' ' + unit, 'Distance']}
+                    contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', color: '#F3F4F6' }}
+                    labelStyle={{ color: '#9CA3AF' }}
+                />
                 <Area type="monotone" dataKey="distance" stroke="#F97316" fill="#FB923C80" name="Distance" />
             </AreaChart>
+        </ResponsiveContainer>
+    );
+}
+
+function FlightsByDayOfWeekChart({ data }: { data: { month: string; count: number }[] }) {
+    if (!data || data.length === 0) return <p>No data</p>;
+
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dayCounts: { [key: string]: number } = {};
+    dayNames.forEach(d => { dayCounts[d] = 0; });
+
+    data.forEach(entry => {
+        // entry.month is "YYYY-MM" or a date string; we compute day of week from flightsByDay if available
+        // This chart works from the pre-aggregated flightsByDay data
+    });
+
+    return null; // Placeholder — real implementation below in AllStats
+}
+
+function FlightsByDayOfWeekChartFromDays({ data }: { data: { date: string; count: number }[] }) {
+    if (!data || data.length === 0) return <p>No data</p>;
+
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dayCounts: number[] = [0, 0, 0, 0, 0, 0, 0];
+
+    data.forEach(entry => {
+        const d = new Date(entry.date + 'T00:00:00');
+        dayCounts[d.getDay()] += entry.count;
+    });
+
+    const chartData = dayNames.map((name, i) => ({ day: name, count: dayCounts[i] }));
+    const maxCount = Math.max(...dayCounts);
+
+    return (
+        <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
+                <XAxis dataKey="day" tick={CHART_TICK_STYLE} />
+                <YAxis allowDecimals={false} tick={CHART_TICK_STYLE} />
+                <Tooltip
+                    contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', color: '#F3F4F6' }}
+                    labelStyle={{ color: '#9CA3AF' }}
+                />
+                <Bar dataKey="count" name="Flights" radius={[4, 4, 0, 0]}>
+                    {chartData.map((entry, index) => (
+                        <Cell
+                            key={`cell-${index}`}
+                            fill={entry.count === maxCount ? '#f59e0b' : '#60a5fa'}
+                        />
+                    ))}
+                </Bar>
+            </BarChart>
+        </ResponsiveContainer>
+    );
+}
+
+function DistanceDistributionChart({ topRoutes, distUnit }: { topRoutes: { origin: string; destination: string; count: number; distance?: number }[]; distUnit: string }) {
+    // Build distance distribution from flightsByMonth distance data
+    // Since we don't have per-flight distances, we'll use buckets from the statistics
+    // This is a simplified histogram based on available data
+    return null;
+}
+
+function YearOverYearChart({ data }: { data: { month: string; count: number }[] }) {
+    if (!data || data.length === 0) return <p>No data</p>;
+
+    // Group by year
+    const yearCounts: { [year: string]: number } = {};
+    data.forEach(entry => {
+        const year = entry.month.substring(0, 4);
+        yearCounts[year] = (yearCounts[year] || 0) + entry.count;
+    });
+
+    const chartData = Object.entries(yearCounts)
+        .map(([year, count]) => ({ year, count }))
+        .sort((a, b) => a.year.localeCompare(b.year));
+
+    if (chartData.length < 2) return <p>Need at least 2 years of data</p>;
+
+    return (
+        <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
+                <XAxis dataKey="year" tick={CHART_TICK_STYLE} />
+                <YAxis allowDecimals={false} tick={CHART_TICK_STYLE} />
+                <Tooltip
+                    contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', color: '#F3F4F6' }}
+                    labelStyle={{ color: '#9CA3AF' }}
+                />
+                <Bar dataKey="count" fill="#8b5cf6" name="Flights" radius={[4, 4, 0, 0]} />
+            </BarChart>
+        </ResponsiveContainer>
+    );
+}
+
+function TopRoutesChart({ data }: { data: { origin: string; destination: string; count: number }[] }) {
+    if (!data || data.length === 0) return <p>No records found</p>;
+
+    const chartData = data.slice(0, 8).map(route => ({
+        route: `${route.origin}\u2192${route.destination}`,
+        count: route.count,
+    })).reverse(); // Reverse so highest is at top for horizontal bars
+
+    return (
+        <ResponsiveContainer width="100%" height={Math.max(200, chartData.length * 32)}>
+            <BarChart data={chartData} layout="vertical" margin={{ left: 10, right: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} horizontal={false} />
+                <XAxis type="number" allowDecimals={false} tick={CHART_TICK_STYLE} />
+                <YAxis type="category" dataKey="route" tick={CHART_TICK_STYLE} width={90} />
+                <Tooltip
+                    contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', color: '#F3F4F6' }}
+                    labelStyle={{ color: '#9CA3AF' }}
+                />
+                <Bar dataKey="count" fill="#10b981" name="Flights" radius={[0, 4, 4, 0]} />
+            </BarChart>
         </ResponsiveContainer>
     );
 }
@@ -134,6 +267,70 @@ function TopAircraftTable({ data }: { data: { airplane: string; count: number }[
                 </li>
             ))}
         </ol>
+    );
+}
+
+function Co2Section({ totalCo2Kg, totalDistance, metricUnits }: { totalCo2Kg: number; totalDistance: number; metricUnits: string }) {
+    // Client-side CO2 calculation as fallback
+    // Short-haul <1500km: 0.255 kg/km, Medium 1500-3000km: 0.188 kg/km, Long >3000km: 0.152 kg/km
+    const co2 = totalCo2Kg > 0 ? totalCo2Kg : 0;
+    if (co2 <= 0 && totalDistance <= 0) return null;
+
+    // Compute estimated CO2 client-side if server didn't provide it
+    let estimatedCo2 = co2;
+    if (estimatedCo2 <= 0 && totalDistance > 0) {
+        // Use average factor (0.188 kg/km for medium-haul as approximation)
+        const distKm = metricUnits === 'false' ? totalDistance * 1.60934 : totalDistance;
+        if (distKm < 1500) {
+            estimatedCo2 = distKm * 0.255;
+        } else if (distKm < 3000) {
+            estimatedCo2 = distKm * 0.188;
+        } else {
+            estimatedCo2 = distKm * 0.152;
+        }
+    }
+
+    if (estimatedCo2 <= 0) return null;
+
+    const tonnes = estimatedCo2 / 1000;
+    const treesNeeded = Math.ceil(estimatedCo2 / 22); // ~22 kg CO2 absorbed per tree per year
+
+    return (
+        <div className="container">
+            <h3 className="text-lg font-semibold mb-4">Carbon Footprint</h3>
+            <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="text-center p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
+                    <div className="text-3xl font-bold text-orange-500">
+                        {tonnes >= 1 ? tonnes.toFixed(1) + 't' : Math.round(estimatedCo2) + ' kg'}
+                    </div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400">
+                        CO{'\u2082'} emissions
+                    </div>
+                </div>
+                <div className="text-center p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                    <div className="text-3xl font-bold text-green-500">
+                        {treesNeeded.toLocaleString()}
+                    </div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400">
+                        trees to offset/yr
+                    </div>
+                </div>
+            </div>
+            <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+                <div className="flex justify-between">
+                    <span>Short-haul (&lt;1,500 km)</span>
+                    <span className="font-mono text-gray-500">0.255 kg/km</span>
+                </div>
+                <div className="flex justify-between">
+                    <span>Medium-haul (1,500-3,000 km)</span>
+                    <span className="font-mono text-gray-500">0.188 kg/km</span>
+                </div>
+                <div className="flex justify-between">
+                    <span>Long-haul (&gt;3,000 km)</span>
+                    <span className="font-mono text-gray-500">0.152 kg/km</span>
+                </div>
+            </div>
+        </div>
     );
 }
 
@@ -386,13 +583,23 @@ export function AllStats({ filters }) {
                     'Visited' countries:{' '}
                     <span className="font-medium">{statistics.visitedCountries}</span>
                 </p>
-                {statistics.totalCo2Kg > 0 && (
+                {(statistics.totalCo2Kg > 0 || statistics.totalDistance > 0) && (
                 <p className="mb-2">
                     Est. CO{'\u2082'} emissions:{' '}
                     <span className="font-medium">
-                        {statistics.totalCo2Kg >= 1000
-                            ? (statistics.totalCo2Kg / 1000).toFixed(1) + ' tonnes'
-                            : statistics.totalCo2Kg.toFixed(0) + ' kg'}
+                        {(() => {
+                            const co2 = statistics.totalCo2Kg > 0
+                                ? statistics.totalCo2Kg
+                                : (() => {
+                                    const distKm = metricUnits === 'false' ? statistics.totalDistance * 1.60934 : statistics.totalDistance;
+                                    if (distKm < 1500) return distKm * 0.255;
+                                    if (distKm < 3000) return distKm * 0.188;
+                                    return distKm * 0.152;
+                                })();
+                            return co2 >= 1000
+                                ? (co2 / 1000).toFixed(1) + ' tonnes'
+                                : Math.round(co2) + ' kg';
+                        })()}
                     </span>
                 </p>
                 )}
@@ -408,6 +615,25 @@ export function AllStats({ filters }) {
                 <DistanceByMonthChart data={statistics.distanceByMonth} unit={distUnit} />
             </div>
 
+            {statistics.flightsByDay && statistics.flightsByDay.length > 0 && (
+            <div className="container">
+                <h3 className="text-lg font-semibold mb-4">Flights by day of week</h3>
+                <FlightsByDayOfWeekChartFromDays data={statistics.flightsByDay} />
+            </div>
+            )}
+
+            {statistics.flightsByMonth && statistics.flightsByMonth.length > 12 && (
+            <div className="container">
+                <h3 className="text-lg font-semibold mb-4">Year over year</h3>
+                <YearOverYearChart data={statistics.flightsByMonth} />
+            </div>
+            )}
+
+            <div className="container">
+                <h3 className="text-lg font-semibold mb-4">Top routes</h3>
+                <TopRoutesChart data={statistics.topRoutes} />
+            </div>
+
             <div className="container">
                 <h3 className="text-lg font-semibold mb-4">Most visited airports</h3>
                 <StatFrequency object={statistics.mostVisitedAirports} measure="visits" />
@@ -416,11 +642,6 @@ export function AllStats({ filters }) {
             <div className="container">
                 <h3 className="text-lg font-semibold mb-4">Most common countries</h3>
                 <StatFrequency object={statistics.mostCommonCountries} measure="flights" />
-            </div>
-
-            <div className="container">
-                <h3 className="text-lg font-semibold mb-4">Most flown routes</h3>
-                <TopRoutesTable data={statistics.topRoutes} />
             </div>
 
             <div className="container">
@@ -440,8 +661,10 @@ export function AllStats({ filters }) {
 
             <div className="container">
                 <h3 className="text-lg font-semibold mb-4">Most common airlines</h3>
-                <StatFrequency object={statistics.mostCommonAirlines} measure="flights" />
+                <StatFrequency object={statistics.mostCommonAirlines} measure="flights" showAirlineLogo={true} />
             </div>
+
+            <Co2Section totalCo2Kg={statistics.totalCo2Kg} totalDistance={statistics.totalDistance} metricUnits={metricUnits} />
 
             <div className="container">
                 <h3 className="text-lg font-semibold mb-4">Records</h3>
@@ -571,8 +794,11 @@ export function AllStats({ filters }) {
                     <h4 className="text-sm font-semibold mb-2">By Airline</h4>
                     <div className="space-y-1">
                         {statistics.ratingByAirline.map(r => (
-                            <div key={r.airline} className="flex justify-between text-sm">
-                                <span>{r.airline}</span>
+                            <div key={r.airline} className="flex justify-between items-center text-sm">
+                                <div className="flex items-center gap-2">
+                                    <AirlineLogo icao={r.airline} size={18} />
+                                    <span>{r.airline}</span>
+                                </div>
                                 <span className="text-yellow-400">{r.avg}{'\u2605'} <span className="text-gray-400">({r.count})</span></span>
                             </div>
                         ))}

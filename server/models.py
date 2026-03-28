@@ -1,23 +1,27 @@
 import datetime
 import time
-from pydantic import BaseModel, field_validator
-from enum     import Enum
+from pydantic import BaseModel, ConfigDict, field_validator
+from enum import Enum
+
 
 #  camel case convertion
 def camel_case(snake_case: str) -> str:
     segments = [segment for segment in snake_case.split('_')]
     return segments[0] + ''.join([segment.capitalize() for segment in segments[1:]])
 
+
 class CamelableModel(BaseModel):
-    class Config:
-        alias_generator = camel_case
-        populate_by_name = True
-        from_attributes = True
+    model_config = ConfigDict(
+        alias_generator=camel_case,
+        populate_by_name=True,
+        from_attributes=True,
+    )
+
 
 # abstract model
 class CustomModel(CamelableModel):
     @classmethod
-    def from_database(cls, db: tuple, explicit: dict|None = None):
+    def from_database(cls, db: tuple, explicit: dict | None = None):
         columns = cls.get_attributes()
         values = {}
 
@@ -31,7 +35,7 @@ class CustomModel(CamelableModel):
         if explicit:
             for attr in explicit:
                 values[attr] = explicit[attr]
-        
+
         instance = cls(**values)
 
         return instance
@@ -43,7 +47,7 @@ class CustomModel(CamelableModel):
         for ignored_attr in ignore:
             attributes.remove(ignored_attr)
 
-        return attributes 
+        return attributes
 
     def get_values(self, ignore: list = [], explicit: dict = {}) -> list:
         values = []
@@ -77,28 +81,32 @@ class CustomModel(CamelableModel):
 
         for attr in columns:
             if getattr(self, attr) != None:
-               return False
+                return False
 
         return True
 
+
 class User(CustomModel):
-    id:              int
-    username:        str
-    password_hash:   str
-    is_admin:        bool
-    public_profile:  bool = False
-    last_login:      datetime.datetime|None
-    created_on:      datetime.datetime
+    id: int
+    username: str
+    password_hash: str
+    is_admin: bool
+    public_profile: bool = False
+    last_login: datetime.datetime | None = None
+    created_on: datetime.datetime = None
+
 
 class SeatType(str, Enum):
     WINDOW = "window"
     MIDDLE = "middle"
     AISLE = "aisle"
 
+
 class AircraftSide(str, Enum):
     LEFT = "left"
     RIGHT = "right"
     CENTER = "center"
+
 
 class FlightPurpose(str, Enum):
     LEISURE = "leisure"
@@ -106,12 +114,14 @@ class FlightPurpose(str, Enum):
     CREW = "crew"
     OTHER = "other"
 
+
 class ClassType(str, Enum):
     PRIVATE = "private"
     FIRST = "first"
     BUSINESS = "business"
     ECONOMYPLUS = "economy+"
     ECONOMY = "economy"
+
 
 class AirportType(str, Enum):
     CLOSED = "closed"
@@ -121,95 +131,107 @@ class AirportType(str, Enum):
     SEAPLANE = "seaplane_base"
     HELIPORT = "heliport"
 
+
 class AirportModel(CustomModel):
-    icao:         str
-    iata:         str|None
-    type:         AirportType
-    name:         str
-    municipality: str|None
-    region:       str
-    country:      str
-    continent:    str
-    latitude:     float
-    longitude:    float
-    timezone:     str
+    icao: str
+    iata: str | None = None
+    type: AirportType
+    name: str
+    municipality: str | None = None
+    region: str
+    country: str
+    continent: str
+    latitude: float
+    longitude: float
+    timezone: str
 
     @field_validator('icao')
     @classmethod
-    def icao_must_exist(cls, v) -> str|None:
-        from server.database import database
-
+    def icao_must_exist(cls, v) -> str | None:
         if v == None:
             return None
 
-        res = database.execute_read_query(f"SELECT icao FROM airports WHERE LOWER(icao) = LOWER(?);", [v]);
+        from server.db.session import SessionLocal
+        from server.db.models import Airport
+        from sqlalchemy import func
 
-        if len(res) < 1:
+        with SessionLocal() as session:
+            result = session.query(Airport.icao).filter(
+                func.lower(Airport.icao) == func.lower(v)
+            ).first()
+
+        if not result:
             raise ValueError(f"must have valid ICAO code, got '{v}'")
 
         return v
 
+
 class AirlineModel(CustomModel):
     icao: str
-    iata: str|None=None
+    iata: str | None = None
     name: str
 
     @field_validator('icao')
     @classmethod
-    def icao_must_exist(cls, v) -> str|None:
-        from server.database import database
-
+    def icao_must_exist(cls, v) -> str | None:
         if v == None:
             return None
 
-        res = database.execute_read_query(f"SELECT icao FROM airlines WHERE LOWER(icao) = LOWER(?);", [v])
+        from server.db.session import SessionLocal
+        from server.db.models import Airline
+        from sqlalchemy import func
 
-        if len(res) < 1:
+        with SessionLocal() as session:
+            result = session.query(Airline.icao).filter(
+                func.lower(Airline.icao) == func.lower(v)
+            ).first()
+
+        if not result:
             raise ValueError(f"must have valid ICAO code, got '{v}'")
 
         return v
 
 
 class FlightModel(CustomModel):
-    id:               int|None = None
-    username:         str|None = None
-    date:             datetime.date
-    origin:           AirportModel|str # API uses AirportModel/str, database uses str
-    destination:      AirportModel|str
-    departure_time:   str|None = None
-    arrival_time:     str|None = None
-    arrival_date:     datetime.date|None = None
-    seat:             SeatType|None = None
-    seat_number:      str|None = None
-    aircraft_side:    AircraftSide|None = None
-    ticket_class:     ClassType|None = None
-    purpose:          FlightPurpose|None = None
-    duration:         int|None = None
-    distance:         int|None = None
-    airplane:         str|None = None
-    airline:          AirlineModel|str|None = None
-    tail_number:      str|None = None
-    flight_number:    str|None = None
-    notes:            str|None = None
-    cost:             float|None = None
-    currency:         str|None = None
-    rating:           int|None = None
-    connection:       int|None = None
+    id: int | None = None
+    username: str | None = None
+    date: datetime.date
+    origin: AirportModel | str  # API uses AirportModel/str, database uses str
+    destination: AirportModel | str
+    departure_time: str | None = None
+    arrival_time: str | None = None
+    arrival_date: datetime.date | None = None
+    seat: SeatType | None = None
+    seat_number: str | None = None
+    aircraft_side: AircraftSide | None = None
+    ticket_class: ClassType | None = None
+    purpose: FlightPurpose | None = None
+    duration: int | None = None
+    distance: int | None = None
+    airplane: str | None = None
+    airline: AirlineModel | str | None = None
+    tail_number: str | None = None
+    flight_number: str | None = None
+    notes: str | None = None
+    cost: float | None = None
+    currency: str | None = None
+    rating: int | None = None
+    connection: int | None = None
 
     @field_validator('origin', 'destination')
     @classmethod
-    def airport_must_exist(cls, v) -> str|AirportModel|None:
+    def airport_must_exist(cls, v) -> str | AirportModel | None:
         if v == None:
             return None
 
         icao = v.icao if type(v) == AirportModel else v
-        AirportModel.validate_single_field('icao', icao) 
+        AirportModel.validate_single_field('icao', icao)
 
         return v
 
     @field_validator('airline')
     @classmethod
-    def airline_must_exist(cls, v) -> str|AirlineModel|None:
+    def airline_must_exist(cls, v) -> str | AirlineModel | None:
         if v == None:
             return None
 
@@ -220,7 +242,7 @@ class FlightModel(CustomModel):
 
     @field_validator('departure_time', 'arrival_time')
     @classmethod
-    def time_must_be_hh_mm(cls, v) -> str|None:
+    def time_must_be_hh_mm(cls, v) -> str | None:
         if v == None:
             return None
 
@@ -234,60 +256,53 @@ class FlightModel(CustomModel):
 
     @field_validator('username')
     @classmethod
-    def user_must_exist(cls, v) -> str|None:
+    def user_must_exist(cls, v) -> str | None:
         if v == None:
             return None
 
-        from server.database import database
+        from server.db.session import SessionLocal
+        from server.db.models import User as UserModel
 
-        res = database.execute_read_query("SELECT 1 FROM users WHERE username = ?;", [v])
+        with SessionLocal() as session:
+            result = session.query(UserModel).filter(UserModel.username == v).first()
 
-        if len(res) < 1:
+        if not result:
             raise ValueError(f"must have valid username, got '{v}'")
 
         return v
 
-    #@field_validator('connection')
-    #@classmethod
-    #def connection_must_exist(cls, v) -> int|None:
-    #    from server.database import database
-
-    #    res = database.execute_read_query("SELECT 1 FROM flights WHERE id = ?;", [v])
-
-    #    if len(res) < 1:
-    #        raise ValueError(f"must have valid connection flight id, got '{v}'")
-
-    #    return v
 
 class StatisticsModel(CustomModel):
-    total_flights:          int
-    total_duration:         int
-    total_distance:         int
-    total_unique_airports:  int
-    days_range:             int
-    visited_countries:      int
-    most_visited_airports:  dict
-    most_common_countries:  dict
-    seat_frequency:         dict
+    total_flights: int
+    total_duration: int
+    total_distance: int
+    total_unique_airports: int
+    days_range: int
+    visited_countries: int
+    most_visited_airports: dict
+    most_common_countries: dict
+    seat_frequency: dict
     ticket_class_frequency: dict
-    most_common_airlines:   dict
-    flights_by_month:       list = []
-    distance_by_month:      list = []
-    top_routes:             list = []
-    top_aircraft:           list = []
-    records:                dict = {}
-    total_cost:             dict = {}
-    cost_per_km:            dict = {}
-    avg_cost_by_class:      list = []
-    total_co2_kg:           float = 0
-    avg_speed_kmh:          float = 0
-    unique_timezones:       int = 0
-    continent_completion:   list = []
-    flights_by_day:         list = []
-    avg_rating:             float = 0
-    rated_flights:          int = 0
-    rating_by_airline:      list = []
-    rating_distribution:    dict = {}
-    side_frequency:         dict = {}
-    layover_stats:          dict = {}
-    redeye_count:           int = 0
+    most_common_airlines: dict
+    flights_by_month: list = []
+    distance_by_month: list = []
+    top_routes: list = []
+    top_aircraft: list = []
+    records: dict = {}
+    total_cost: dict = {}
+    cost_per_km: dict = {}
+    avg_cost_by_class: list = []
+    total_co2_kg: float = 0
+    co2_trees_offset: float = 0
+    co2_car_km_equivalent: float = 0
+    avg_speed_kmh: float = 0
+    unique_timezones: int = 0
+    continent_completion: list = []
+    flights_by_day: list = []
+    avg_rating: float = 0
+    rated_flights: int = 0
+    rating_by_airline: list = []
+    rating_distribution: dict = {}
+    side_frequency: dict = {}
+    layover_stats: dict = {}
+    redeye_count: int = 0

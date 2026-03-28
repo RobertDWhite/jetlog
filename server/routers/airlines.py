@@ -1,6 +1,9 @@
-from server.database import database
+from server.db.session import get_db
+from server.db.models import Airline
 from server.models import AirlineModel
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 router = APIRouter(
     prefix="/airlines",
@@ -8,29 +11,31 @@ router = APIRouter(
     redirect_slashes=True
 )
 
-@router.get("", status_code=200)
-async def get_airlines(q: str) -> list[AirlineModel]:
-    results = database.execute_read_query(f"""
-        SELECT * FROM airlines WHERE
-        LOWER(name) LIKE LOWER(?) OR
-        LOWER(icao) LIKE LOWER(?) OR
-        LOWER(iata) LIKE LOWER(?)
-        ORDER BY LOWER(name) = LOWER(?) DESC,
-                 LENGTH(name) ASC,
-                 LOWER(icao) = LOWER(?) DESC,
-                 LOWER(iata) = LOWER(?)
-        LIMIT 5;
-        """, [f"%{q}%"] * 3 + ["q"] * 3)
 
-    airlines = [ AirlineModel.from_database(db_airline) for db_airline in results ]
-    return [ AirlineModel.model_validate(airline) for airline in airlines ]
+@router.get("", status_code=200)
+async def get_airlines(q: str, db: Session = Depends(get_db)) -> list[AirlineModel]:
+    lower_q = q.lower()
+
+    results = db.query(Airline).filter(
+        (func.lower(Airline.name).like(f"%{lower_q}%")) |
+        (func.lower(Airline.icao).like(f"%{lower_q}%")) |
+        (func.lower(Airline.iata).like(f"%{lower_q}%"))
+    ).order_by(
+        (func.lower(Airline.name) == lower_q).desc(),
+        func.length(Airline.name).asc(),
+        (func.lower(Airline.icao) == lower_q).desc(),
+        (func.lower(Airline.iata) == lower_q).desc(),
+    ).limit(5).all()
+
+    airlines = [AirlineModel.model_validate(al) for al in results]
+    return airlines
+
 
 @router.get("/{icao}", status_code=200)
-async def get_airline_from_icao(icao: str) -> AirlineModel:
-    result = database.execute_read_query("SELECT * FROM airlines WHERE LOWER(icao) = LOWER(?);", [icao])
+async def get_airline_from_icao(icao: str, db: Session = Depends(get_db)) -> AirlineModel:
+    result = db.query(Airline).filter(func.lower(Airline.icao) == func.lower(icao)).first()
 
     if not result:
         raise HTTPException(status_code=404, detail=f"No airline with ICAO '{icao}' found")
 
-    airline = AirlineModel.from_database(result[0])
-    return AirlineModel.model_validate(airline)
+    return AirlineModel.model_validate(result)

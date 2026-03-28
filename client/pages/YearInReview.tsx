@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { Heading, Spinner, Select } from '../components/Elements';
+import AirlineLogo from '../components/AirlineLogo';
 import { Statistics } from '../models';
 import API from '../api';
 import ConfigStorage from '../storage/configStorage';
@@ -59,6 +60,17 @@ export default function YearInReview() {
     const topRoute = stats.topRoutes?.[0];
     const continentsVisited = stats.continentCompletion?.filter(c => c.visited > 0).length || 0;
 
+    // CO2 calculation
+    const computeCo2 = () => {
+        if (stats.totalCo2Kg > 0) return stats.totalCo2Kg;
+        if (stats.totalDistance <= 0) return 0;
+        const distKm = metricUnits === 'false' ? stats.totalDistance * 1.60934 : stats.totalDistance;
+        if (distKm < 1500) return distKm * 0.255;
+        if (distKm < 3000) return distKm * 0.188;
+        return distKm * 0.152;
+    };
+    const co2 = computeCo2();
+
     const yearOptions = [];
     for (let y = currentYear; y >= currentYear - 10; y--) {
         yearOptions.push({ text: String(y), value: String(y) });
@@ -100,9 +112,9 @@ export default function YearInReview() {
                         comparison={`across ${continentsVisited} continents`}
                     />
                     <ComparisonStat
-                        value={stats.totalCo2Kg >= 1000
-                            ? (stats.totalCo2Kg / 1000).toFixed(1) + 't'
-                            : Math.round(stats.totalCo2Kg) + 'kg'}
+                        value={co2 >= 1000
+                            ? (co2 / 1000).toFixed(1) + 't'
+                            : Math.round(co2) + 'kg'}
                         unit={`CO\u2082 emissions`}
                         comparison="estimated footprint"
                     />
@@ -118,7 +130,10 @@ export default function YearInReview() {
                         </div>
                         <div>
                             <p className="text-sm text-gray-500 dark:text-gray-400">Top Airline</p>
-                            <p className="text-xl font-bold text-primary-500">{topAirline}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                                <AirlineLogo icao={topAirline} size={28} />
+                                <p className="text-xl font-bold text-primary-500">{topAirline}</p>
+                            </div>
                         </div>
                         {topRoute && (
                         <div>
@@ -131,6 +146,33 @@ export default function YearInReview() {
                         )}
                     </div>
                 </div>
+
+                {/* CO2 Detail for the year */}
+                {co2 > 0 && (
+                <div className="container mb-6">
+                    <h3 className="text-lg font-semibold mb-4">{year} Carbon Footprint</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="text-center p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
+                            <div className="text-3xl font-bold text-orange-500">
+                                {co2 >= 1000
+                                    ? (co2 / 1000).toFixed(1) + 't'
+                                    : Math.round(co2) + ' kg'}
+                            </div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                                CO{'\u2082'} emissions
+                            </div>
+                        </div>
+                        <div className="text-center p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                            <div className="text-3xl font-bold text-green-500">
+                                {Math.ceil(co2 / 22).toLocaleString()}
+                            </div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                                trees to offset/yr
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                )}
 
                 {/* Records */}
                 {stats.records && Object.keys(stats.records).length > 0 && (

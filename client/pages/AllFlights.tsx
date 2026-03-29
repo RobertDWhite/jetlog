@@ -5,6 +5,7 @@ import { Heading, Label, Input, Select, Dialog, Whisper, Button, Spinner } from 
 import UserSelect from '../components/UserSelect';
 import SingleFlight from '../components/SingleFlight';
 import AirlineLogo from '../components/AirlineLogo';
+import TripTimeline from '../components/TripTimeline';
 import { Flight } from '../models'
 
 import API from '../api'
@@ -141,18 +142,21 @@ export default function AllFlights() {
 }
 
 function FlightsView({ filters }: { filters: FlightsFilters }) {
-    const [view, setView] = useState<'table' | 'timeline'>('table');
+    const [view, setView] = useState<'table' | 'timeline' | 'trips'>('table');
 
     return (
         <>
             <div className="flex gap-2 mb-3">
                 <Button text="Table" level={view === 'table' ? 'primary' : 'default'} onClick={() => setView('table')} />
                 <Button text="Timeline" level={view === 'timeline' ? 'primary' : 'default'} onClick={() => setView('timeline')} />
+                <Button text="Trips" level={view === 'trips' ? 'primary' : 'default'} onClick={() => setView('trips')} />
             </div>
             {view === 'table' ? (
                 <FlightsTable filters={filters} />
-            ) : (
+            ) : view === 'timeline' ? (
                 <FlightsTimeline filters={filters} />
+            ) : (
+                <FlightsTrips filters={filters} />
             )}
         </>
     );
@@ -496,6 +500,144 @@ function FlightsTimeline({ filters }: { filters: FlightsFilters }) {
                     </div>
                 </div>
             ))}
+        </div>
+    );
+}
+
+/**
+ * Group flights into trips by detecting connected flights:
+ * 1. Flights explicitly linked via the `connection` field
+ * 2. Flights where destination of one matches origin of the next within 24 hours
+ * Single, unconnected flights render as simple cards.
+ */
+function FlightsTrips({ filters }: { filters: FlightsFilters }) {
+    const [flights, setFlights] = useState<Flight[]>();
+    const navigate = useNavigate();
+    const metricUnits = ConfigStorage.getSetting("metricUnits");
+
+    useEffect(() => {
+        API.get(`/flights?metric=${metricUnits}`, { ...filters, order: 'DESC' })
+        .then((data: Flight[]) => setFlights(data));
+    }, [filters]);
+
+    if (flights === undefined) return <Spinner />;
+    if (flights.length === 0) return <p className="m-4">No flights!</p>;
+
+    // Sort chronologically for grouping
+    const sorted = [...flights].sort((a, b) => {
+        const dateCompare = a.date.localeCompare(b.date);
+        if (dateCompare !== 0) return dateCompare;
+        return (a.departureTime || '').localeCompare(b.departureTime || '');
+    });
+
+    // Build adjacency via connection field
+    const idToFlight = new Map<number, Flight>();
+    for (const f of sorted) idToFlight.set(f.id, f);
+
+    // Union-Find for grouping
+    const parent = new Map<number, number>();
+    function find(x: number): number {
+        if (!parent.has(x)) parent.set(x, x);
+        if (parent.get(x) !== x) parent.set(x, find(parent.get(x)!));
+        return parent.get(x)!;
+    }
+    function union(a: number, b: number) {
+        parent.set(find(a), find(b));
+    }
+
+    // Group by explicit connection field
+    for (const f of sorted) {
+        if (f.connection && idToFlight.has(f.connection)) {
+            union(f.id, f.connection);
+        }
+    }
+
+    // Group by destination-matches-origin within 24 hours
+    for (let i = 0; i < sorted.length; i++) {
+        for (let j = i + 1; j < sorted.length; j++) {
+            const a = sorted[i];
+            const b = sorted[j];
+
+            const destCode = a.destination.icao || a.destination.iata;
+            const origCode = b.origin.icao || b.origin.iata;
+
+            if (destCode && origCode && destCode === origCode) {
+                // Check time proximity: arrival of a to departure of b within 24h
+                const aDate = new Date(a.arrivalDate || a.date).getTime();
+                const bDate = new Date(b.date).getTime();
+                const diffHours = (bDate - aDate) / (1000 * 60 * 60);
+
+                if (diffHours >= 0 && diffHours <= 24) {
+                    union(a.id, b.id);
+                }
+            }
+        }
+    }
+
+    // Collect groups
+    const groups = new Map<number, Flight[]>();
+    for (const f of sorted) {
+        const root = find(f.id);
+        if (!groups.has(root)) groups.set(root, []);
+        groups.get(root)!.push(f);
+    }
+
+    // Convert to array and sort groups by first flight date (descending for display)
+    const tripGroups = Array.from(groups.values()).sort((a, b) => {
+        return b[0].date.localeCompare(a[0].date);
+    });
+
+    return (
+        <div className="max-w-3xl mx-auto space-y-6">
+            {tripGroups.map((group) => {
+                if (group.length === 1) {
+                    // Single flight - simple card
+                    const flight = group[0];
+                    const originCode = flight.origin.iata || flight.origin.icao;
+                    const destCode = flight.destination.iata || flight.destination.icao;
+
+                    return (
+                        <div key={flight.id}
+                             className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4 md:p-6 shadow-sm
+                                        hover:shadow-md transition-shadow cursor-pointer"
+                             onClick={() => navigate(`/flights?id=${flight.id}`)}>
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-3">
+                                    <p className="text-lg font-bold dark:text-gray-100">
+                                        {originCode}
+                                        <span className="mx-2 text-primary-400">{'\u2192'}</span>
+                                        {destCode}
+                                    </p>
+                                    {flight.flightNumber && (
+                                        <span className="text-xs bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300 px-2 py-0.5 rounded-full">
+                                            {flight.flightNumber}
+                                        </span>
+                                    )}
+                                </div>
+                                {flight.airline && (
+                                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                                        <AirlineLogo iata={flight.airline.iata} icao={flight.airline.icao} size={24} />
+                                        <span className="text-xs text-gray-400 dark:text-gray-500 hidden sm:inline">{flight.airline.name}</span>
+                                    </div>
+                                )}
+                            </div>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">
+                                {flight.origin.municipality} to {flight.destination.municipality}
+                            </p>
+                            <div className="flex items-center flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-gray-500 dark:text-gray-500">
+                                <span>{flight.date}</span>
+                                {flight.departureTime && <span>{flight.departureTime}</span>}
+                                {flight.duration ? <span>{flight.duration} min</span> : null}
+                                {flight.distance ? <span>{flight.distance.toLocaleString()} {metricUnits === 'false' ? 'mi' : 'km'}</span> : null}
+                                {flight.airplane && <span>{flight.airplane}</span>}
+                            </div>
+                        </div>
+                    );
+                }
+
+                // Multi-leg trip
+                return <TripTimeline key={group[0].id} flights={group} />;
+            })}
         </div>
     );
 }

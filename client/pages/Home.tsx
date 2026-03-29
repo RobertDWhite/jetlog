@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { ShortStats } from '../components/Stats';
 import WorldMap from '../components/WorldMap';
+import AnimatedRouteExport from '../components/AnimatedRouteExport';
 import { Button, Spinner } from '../components/Elements';
 import { Flight, Statistics } from '../models';
 import API from '../api';
@@ -163,18 +164,34 @@ function RecentFlights() {
 }
 
 export default function Home() {
+    const [animExportOpen, setAnimExportOpen] = useState(false);
+
     return (
         <>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
                 <div className="md:col-span-2 relative">
                     <WorldMap />
                     <MapOverlayStats />
+                    <div className="absolute top-3 left-3 z-20">
+                        <button
+                            onClick={() => setAnimExportOpen(true)}
+                            className="glass-card px-3 py-1.5 text-xs text-gray-300 hover:text-white transition-colors cursor-pointer"
+                            title="Export animated flight video"
+                        >
+                            Export Animation
+                        </button>
+                    </div>
                 </div>
                 <div>
                     <UpcomingFlights />
                     <RecentFlights />
                 </div>
             </div>
+
+            <AnimatedRouteExport
+                isOpen={animExportOpen}
+                onClose={() => setAnimExportOpen(false)}
+            />
         </>
     );
 }

@@ -42,3 +42,135 @@
         border: 1px solid rgba(255, 255, 255, 0.08);
     }
 }
+
+/* Safe area for fixed bottom nav */
+.pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Bottom nav spacer - prevents content from hiding behind bottom nav */
+.bottom-nav-spacer {
+    height: 64px;
+}
+
+@media (min-width: 768px) {
+    .bottom-nav-spacer {
+        height: 0;
+    }
+}
+
+/* Loading skeleton animation */
+@keyframes shimmer {
+    0% { background-position: -200px 0; }
+    100% { background-position: calc(200px + 100%) 0; }
+}
+
+.skeleton {
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.05) 50%, transparent 100%);
+    background-size: 200px 100%;
+    animation: shimmer 1.5s infinite;
+}
+
+/* Command palette animations */
+.command-palette-overlay {
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    animation: palette-overlay-in 0.15s ease-out;
+}
+
+.command-palette-modal {
+    animation: palette-modal-in 0.2s ease-out;
+}
+
+@keyframes palette-overlay-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes palette-modal-in {
+    from {
+        opacity: 0;
+        transform: translateY(-12px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* Animated route export modal */
+.animated-export-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    animation: anim-export-overlay-in 0.2s ease-out;
+}
+
+.animated-export-modal {
+    background: #1a1d23;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 1rem;
+    width: 100%;
+    max-width: 960px;
+    max-height: 95vh;
+    overflow: hidden;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+    animation: anim-export-modal-in 0.25s ease-out;
+}
+
+.animated-export-canvas-wrapper {
+    background: #0d1117;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.animated-export-progress {
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.animated-export-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #41b6e6, #ff8c00);
+    border-radius: 3px;
+    transition: width 0.15s ease-out;
+}
+
+@keyframes anim-export-overlay-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes anim-export-modal-in {
+    from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* Boarding pass scanner animation */
+@keyframes scan-line {
+    0% { top: 0; }
+    50% { top: 100%; }
+    100% { top: 0; }
+}
+
+.animate-scan-line {
+    animation: scan-line 2s ease-in-out infinite;
+}

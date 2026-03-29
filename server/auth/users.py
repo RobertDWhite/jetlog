@@ -1,7 +1,7 @@
 from server.models import CustomModel, User
 from server.db.session import get_db
 from server.db.models import User as UserModel, Flight
-from server.auth.utils import hash_password, get_user, oauth2_scheme
+from server.auth.utils import hash_password, get_user, get_user_from_api_key, oauth2_scheme
 from server.environment import SECRET_KEY, AUTH_HEADER
 
 
@@ -83,11 +83,28 @@ async def get_public_profile(username: str):
     }
 
 @router.get("/me")
-async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)) -> User:
+async def get_current_user(request: Request, token: str = Depends(oauth2_scheme),
+                           db: Session = Depends(get_db)) -> User:
     if AUTH_HEADER != None and AUTH_HEADER in request.headers:
         return await get_user_from_auth_header(request)
 
-    return await get_user_from_token(token)
+    # Try JWT first
+    try:
+        return await get_user_from_token(token)
+    except HTTPException:
+        pass
+
+    # Try API key as fallback
+    if token:
+        user = get_user_from_api_key(token, db)
+        if user:
+            return user
+
+    raise HTTPException(
+        status_code=401,
+        headers={"WWW-Authenticate": "Bearer"},
+        detail="Invalid token or API key"
+    )
 
 @router.post("", status_code=201)
 async def create_user(new_user: UserPatch, user: User = Depends(get_current_user),

@@ -273,36 +273,36 @@ class FlightModel(CustomModel):
 
 
 class StatisticsModel(CustomModel):
-    total_flights: int
-    total_duration: int
-    total_distance: int
-    total_unique_airports: int
-    days_range: int
-    visited_countries: int
-    most_visited_airports: dict
-    most_common_countries: dict
-    seat_frequency: dict
-    ticket_class_frequency: dict
-    most_common_airlines: dict
-    flights_by_month: list = []
-    distance_by_month: list = []
-    top_routes: list = []
-    top_aircraft: list = []
-    records: dict = {}
-    total_cost: dict = {}
-    cost_per_km: dict = {}
-    avg_cost_by_class: list = []
-    total_co2_kg: float = 0
-    co2_trees_offset: float = 0
-    co2_car_km_equivalent: float = 0
-    avg_speed_kmh: float = 0
-    unique_timezones: int = 0
-    continent_completion: list = []
-    flights_by_day: list = []
-    avg_rating: float = 0
-    rated_flights: int = 0
-    rating_by_airline: list = []
-    rating_distribution: dict = {}
-    side_frequency: dict = {}
-    layover_stats: dict = {}
-    redeye_count: int = 0
+    total_flights: int | None = 0
+    total_duration: int | None = 0
+    total_distance: int | None = 0
+    total_unique_airports: int | None = 0
+    days_range: int | None = 0
+    visited_countries: int | None = 0
+    most_visited_airports: dict | None = {}
+    most_common_countries: dict | None = {}
+    seat_frequency: dict | None = {}
+    ticket_class_frequency: dict | None = {}
+    most_common_airlines: dict | None = {}
+    flights_by_month: list | None = []
+    distance_by_month: list | None = []
+    top_routes: list | None = []
+    top_aircraft: list | None = []
+    records: dict | None = {}
+    total_cost: dict | None = {}
+    cost_per_km: dict | None = {}
+    avg_cost_by_class: list | None = []
+    total_co2_kg: float | None = 0
+    co2_trees_offset: float | None = 0
+    co2_car_km_equivalent: float | None = 0
+    avg_speed_kmh: float | None = 0
+    unique_timezones: int | None = 0
+    continent_completion: list | None = []
+    flights_by_day: list | None = []
+    avg_rating: float | None = 0
+    rated_flights: int | None = 0
+    rating_by_airline: list | None = []
+    rating_distribution: dict | None = {}
+    side_frequency: dict | None = {}
+    layover_stats: dict | None = {}
+    redeye_count: int | None = 0

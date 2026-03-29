@@ -2,6 +2,32 @@ import { NavLink } from 'react-router-dom';
 import React, {useState} from 'react';
 import ConfigStorage from '../storage/configStorage';
 
+interface SearchTriggerProps {
+    onClick: () => void;
+}
+
+function SearchTrigger({ onClick }: SearchTriggerProps) {
+    return (
+        <li className="p-4 flex items-center">
+            <button
+                onClick={onClick}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-400 bg-gray-700/50 hover:bg-gray-700
+                           border border-gray-600/50 rounded-lg cursor-pointer transition-all duration-200
+                           hover:text-gray-200 hover:border-gray-500"
+            >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <span className="hidden lg:inline text-gray-400 font-sans">Search...</span>
+                <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono text-gray-500 bg-gray-800 rounded border border-gray-600">
+                    &#8984;K
+                </kbd>
+            </button>
+        </li>
+    );
+}
+
 interface NavItemProps {
     to: string;
     text: string;
@@ -76,7 +102,11 @@ function NavMenu({ items, darkToggle }) {
     );
 }
 
-export default function Navbar() {
+interface NavbarProps {
+    onSearchOpen?: () => void;
+}
+
+export default function Navbar({ onSearchOpen }: NavbarProps) {
     const items = {
         'home': <NavItem key="home" to="/" text="Home" />,
         'new': <NavItem key="new" to="/new" text="New" />,
@@ -87,25 +117,18 @@ export default function Navbar() {
     };
 
     const darkToggle = <DarkModeToggle key="darkmode" />;
+    const searchTrigger = onSearchOpen ? <SearchTrigger key="search" onClick={onSearchOpen} /> : null;
 
     return(
-        <nav className="bg-gradient-to-r from-gray-800 via-gray-800 to-gray-900 backdrop-blur-md border-b border-gray-700/50 list-none sticky top-0 z-50 shadow-lg">
-            <div className="flex justify-between max-md:hidden">
+        <nav className="hidden md:block bg-gradient-to-r from-gray-800 via-gray-800 to-gray-900 backdrop-blur-md border-b border-gray-700/50 list-none sticky top-0 z-50 shadow-lg">
+            <div className="flex justify-between">
                 <div className="flex">
                 {[items.home, items.new, items.flights, items.statistics, items.review]}
                 </div>
 
-                <div className="flex">
-                {[darkToggle, items.settings]}
+                <div className="flex items-center">
+                {[searchTrigger, darkToggle, items.settings]}
                 </div>
-            </div>
-
-            <div className="flex justify-between md:hidden">
-                <div className="flex">
-                {[items.home, items.new]}
-                </div>
-
-                <NavMenu items={items} darkToggle={darkToggle} />
             </div>
         </nav>
     );

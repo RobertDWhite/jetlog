@@ -8,6 +8,7 @@ import { objectFromForm } from '../utils';
 import { Airline, Airport, User } from '../models';
 import ConfigStorage from '../storage/configStorage';
 import FetchConnection from '../components/FetchConnection';
+import BoardingPassScanner from '../components/BoardingPassScanner';
 
 interface LegData {
     origin?: Airport;
@@ -180,7 +181,40 @@ export default function New() {
     const [allUsernames, setAllUsernames] = useState<string[] | undefined>();
     const [selectedUsernames, setSelectedUsernames] = useState<string[]>([]);
 
+    const [scannerOpen, setScannerOpen] = useState(false);
+
     const localAirportTime = ConfigStorage.getSetting("localAirportTime");
+
+    const handleBoardingPassImport = async (params: URLSearchParams) => {
+        // Pre-fill leg 0 from boarding pass data
+        const fetches: Promise<any>[] = [];
+
+        const origin = params.get('origin');
+        const destination = params.get('destination');
+        const airline = params.get('airline');
+        const dateVal = params.get('date');
+        const flightNumber = params.get('flightNumber');
+        const ticketClass = params.get('ticketClass');
+        const seat = params.get('seat');
+        const seatNumber = params.get('seatNumber');
+
+        if (origin) {
+            fetches.push(API.get(`/airports/${origin}`).then(a => updateLeg(0, 'origin', a)).catch(() => {}));
+        }
+        if (destination) {
+            fetches.push(API.get(`/airports/${destination}`).then(a => updateLeg(0, 'destination', a)).catch(() => {}));
+        }
+        if (airline) {
+            fetches.push(API.get(`/airlines/${airline}`).then(a => updateLeg(0, 'airline', a)).catch(() => {}));
+        }
+        if (dateVal) updateLeg(0, 'date', dateVal);
+        if (flightNumber) updateLeg(0, 'flightNumber', flightNumber);
+        if (ticketClass) updateLeg(0, 'ticketClass', ticketClass);
+        if (seat) updateLeg(0, 'seat', seat);
+        if (seatNumber) updateLeg(0, 'seatNumber', seatNumber);
+
+        await Promise.all(fetches);
+    };
 
     useEffect(() => {
         API.get('/users/me').then((me: User) => {
@@ -393,6 +427,30 @@ export default function New() {
     return (
         <>
             <Heading text="New Flight" />
+
+            <div className="px-4 pb-2">
+                <button type="button"
+                        onClick={() => setScannerOpen(true)}
+                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600
+                                   bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600
+                                   text-sm font-medium dark:text-gray-100 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                         className="w-4 h-4">
+                        <rect x="3" y="3" width="7" height="7" />
+                        <rect x="14" y="3" width="7" height="7" />
+                        <rect x="3" y="14" width="7" height="7" />
+                        <rect x="14" y="14" width="7" height="7" />
+                    </svg>
+                    Scan Boarding Pass
+                </button>
+            </div>
+
+            <BoardingPassScanner
+                isOpen={scannerOpen}
+                onClose={() => setScannerOpen(false)}
+                onImport={handleBoardingPassImport}
+            />
 
             <form onSubmit={postFlight}>
                 {isMultiLeg ? (

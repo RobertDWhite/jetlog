@@ -6,6 +6,8 @@ import { Heading, Label, Input, Checkbox, Subheading, Button, Dialog, Select } f
 import ConfigStorage, { ConfigInterface } from '../storage/configStorage';
 import { User } from '../models';
 import TokenStorage from '../storage/tokenStorage';
+import ApiKeyManager from '../components/ApiKeyManager';
+import CustomFieldDefManager from '../components/CustomFieldDefManager';
 
 interface UserInfoProps {
     user: User;
@@ -477,6 +479,17 @@ export default function Settings() {
 
 
             <div className="container">
+                <Subheading text="Tools" />
+                <div className="flex justify-between items-center">
+                    <Label text="EU261 Flight Compensation Tracker" />
+                    <Button text="Open" onClick={() => navigate('/compensation')} />
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Check which of your flights may be eligible for EU261 delay compensation.
+                </p>
+            </div>
+
+            <div className="container">
                 <Subheading text="You"/>
                 { user === undefined ?
                     <p>Loading...</p>
@@ -501,6 +514,14 @@ export default function Settings() {
                     )}
                     </>
                 }
+            </div>
+
+            <div className="container">
+                <ApiKeyManager />
+            </div>
+
+            <div className="container">
+                <CustomFieldDefManager />
             </div>
 
             { user === undefined || !user.isAdmin ?

@@ -1,5 +1,5 @@
 from server.db.session import init_db
-from server.routers import flights, airports, airlines, statistics, geography, importing, exporting, fr24_sync, health, metrics, tripit
+from server.routers import flights, airports, airlines, statistics, geography, importing, exporting, fr24_sync, health, metrics, tripit, search, analytics, import_formats, boarding_pass, compensation, api_keys, frequent_flyer, custom_fields
 from server.auth import users, auth
 from server.environment import ENABLE_EXTERNAL_APIS, FR24_EMAIL, FR24_PASSWORD
 from fastapi import FastAPI, Depends, Request
@@ -12,10 +12,15 @@ tags_metadata = [
     {"name": "airports"},
     {"name": "airlines"},
     {"name": "statistics"},
+    {"name": "analytics"},
+    {"name": "search"},
     {"name": "geography"},
     {"name": "importing/exporting"},
     {"name": "users"},
-    {"name": "authentication"}
+    {"name": "authentication"},
+    {"name": "api-keys"},
+    {"name": "frequent-flyer"},
+    {"name": "custom-fields"},
 ]
 
 app = FastAPI(openapi_tags=tags_metadata)
@@ -32,6 +37,14 @@ app.include_router(importing.router, prefix="/api", dependencies=auth_dependency
 app.include_router(exporting.router, prefix="/api", dependencies=auth_dependency)
 app.include_router(fr24_sync.router, prefix="/api", dependencies=auth_dependency)
 app.include_router(tripit.router, prefix="/api", dependencies=auth_dependency)
+app.include_router(search.router, prefix="/api", dependencies=auth_dependency)
+app.include_router(analytics.router, prefix="/api", dependencies=auth_dependency)
+app.include_router(import_formats.router, prefix="/api", dependencies=auth_dependency)
+app.include_router(boarding_pass.router, prefix="/api", dependencies=auth_dependency)
+app.include_router(compensation.router, prefix="/api", dependencies=auth_dependency)
+app.include_router(api_keys.router, prefix="/api", dependencies=auth_dependency)
+app.include_router(frequent_flyer.router, prefix="/api", dependencies=auth_dependency)
+app.include_router(custom_fields.router, prefix="/api", dependencies=auth_dependency)
 
 app.include_router(users.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
@@ -61,6 +74,7 @@ async def get_config(request: Request):
 @app.get("/flights", include_in_schema=False)
 @app.get("/statistics", include_in_schema=False)
 @app.get("/settings", include_in_schema=False)
+@app.get("/compensation", include_in_schema=False)
 @app.get("/login", include_in_schema=False)
 async def root():
     with open(build_path / 'index.html', "r") as file:

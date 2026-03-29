@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-import { Heading, Spinner, Select } from '../components/Elements';
+import { Heading, Spinner, Select, Button } from '../components/Elements';
 import AirlineLogo from '../components/AirlineLogo';
+import AnimatedRouteExport from '../components/AnimatedRouteExport';
 import { Statistics } from '../models';
 import API from '../api';
 import ConfigStorage from '../storage/configStorage';
@@ -38,6 +39,7 @@ export default function YearInReview() {
     const [year, setYear] = useState(parseInt(searchParams.get('year') || String(currentYear)));
     const [stats, setStats] = useState<Statistics>();
     const [loading, setLoading] = useState(true);
+    const [animExportOpen, setAnimExportOpen] = useState(false);
     const metricUnits = ConfigStorage.getSetting('metricUnits');
 
     useEffect(() => {
@@ -85,7 +87,16 @@ export default function YearInReview() {
                     defaultValue={String(year)}
                     onChange={(e) => setYear(parseInt(e.target.value))}
                 />
+                <div className="mt-2">
+                    <Button text="Export Animation" level="primary" onClick={() => setAnimExportOpen(true)} />
+                </div>
             </div>
+
+            <AnimatedRouteExport
+                isOpen={animExportOpen}
+                onClose={() => setAnimExportOpen(false)}
+                year={year}
+            />
 
             {stats.totalFlights === 0 ? (
                 <p className="text-center text-gray-500 text-lg">No flights logged in {year}</p>

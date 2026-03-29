@@ -120,3 +120,59 @@ class AuditLog(Base):
 
     def __repr__(self):
         return f"<AuditLog(id={self.id}, action='{self.action}')>"
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(Text, ForeignKey("users.username"), nullable=False)
+    key_hash = Column(Text, nullable=False)
+    name = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.current_timestamp())
+    last_used = Column(DateTime, nullable=True)
+    is_active = Column(Integer, default=1)
+
+    def __repr__(self):
+        return f"<ApiKey(id={self.id}, name='{self.name}', username='{self.username}')>"
+
+
+class FrequentFlyerEntry(Base):
+    __tablename__ = "frequent_flyer_entries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    flight_id = Column(Integer, ForeignKey("flights.id", ondelete="CASCADE"), nullable=False)
+    program_name = Column(Text, nullable=False)
+    member_number = Column(Text, nullable=True)
+    miles_earned = Column(Integer, default=0)
+    status_credits = Column(Integer, default=0)
+
+    def __repr__(self):
+        return f"<FrequentFlyerEntry(id={self.id}, flight_id={self.flight_id}, program='{self.program_name}')>"
+
+
+class CustomFieldDef(Base):
+    __tablename__ = "custom_field_defs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(Text, ForeignKey("users.username"), nullable=False)
+    field_name = Column(Text, nullable=False)
+    field_label = Column(Text, nullable=False)
+    field_type = Column(Text, nullable=False)
+    options = Column(Text, nullable=True)
+    sort_order = Column(Integer, default=0)
+
+    def __repr__(self):
+        return f"<CustomFieldDef(id={self.id}, field_name='{self.field_name}')>"
+
+
+class CustomFieldValue(Base):
+    __tablename__ = "custom_field_values"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    flight_id = Column(Integer, ForeignKey("flights.id", ondelete="CASCADE"), nullable=False)
+    field_def_id = Column(Integer, ForeignKey("custom_field_defs.id", ondelete="CASCADE"), nullable=False)
+    value = Column(Text, nullable=True)
+
+    def __repr__(self):
+        return f"<CustomFieldValue(id={self.id}, flight_id={self.flight_id}, field_def_id={self.field_def_id})>"

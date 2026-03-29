@@ -4,6 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { Button, Heading, Input, Select, Subheading, TextArea, Spinner } from '../components/Elements'
 import { Airline, Airport, Flight, User } from '../models';
 import SearchInput from './SearchInput';
+import ShareableCard from './ShareableCard';
+import FrequentFlyerSection from './FrequentFlyerSection';
+import CustomFieldsEditor from './CustomFieldsEditor';
 import API, { BASE_URL } from '../api';
 import ConfigStorage from '../storage/configStorage';
 import TokenStorage from '../storage/tokenStorage';
@@ -111,6 +114,7 @@ export default function SingleFlight({ flightID }) {
     const [selfUsername, setSelfUsername] = useState<string>();
     const [editMode, setEditMode] = useState<Boolean>(false);
     const [notFound, setNotFound] = useState(false);
+    const [showShareCard, setShowShareCard] = useState(false);
 
     const navigate = useNavigate();
     const metricUnits = ConfigStorage.getSetting("metricUnits");
@@ -314,6 +318,14 @@ export default function SingleFlight({ flightID }) {
                     <Subheading text="Photo" />
                     <FlightPhoto flightId={flight.id} canEdit={selfUsername === flight.username} />
                 </div>
+
+                <div className="container">
+                    <FrequentFlyerSection flightId={flight.id} canEdit={selfUsername === flight.username} />
+                </div>
+
+                <div className="container">
+                    <CustomFieldsEditor flightId={flight.id} canEdit={editMode as boolean} />
+                </div>
             </div>
 
             { editMode &&
@@ -325,6 +337,7 @@ export default function SingleFlight({ flightID }) {
                 <>
                 <Button text={editMode ? "Cancel" : "Edit" } level="default" onClick={toggleEditMode} />
                 <Button text="Delete" level="danger" onClick={deleteFlight} />
+                <Button text="Share" onClick={() => setShowShareCard(true)} />
                 <Button text="Fly Again" onClick={() => {
                     const params = new URLSearchParams();
                     if (flight.origin.icao) params.set('origin', flight.origin.icao);
@@ -340,6 +353,10 @@ export default function SingleFlight({ flightID }) {
                 </>
             }
             </form>
+
+            {showShareCard && (
+                <ShareableCard flight={flight} onClose={() => setShowShareCard(false)} />
+            )}
         </>
     );
 }

@@ -3,6 +3,11 @@ import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContai
 
 import { Whisper, Spinner } from './Elements';
 import AirlineLogo from './AirlineLogo';
+import HeatmapCalendar from './HeatmapCalendar';
+import SeatPreferenceViz from './SeatPreferenceViz';
+import CountryProgress from './CountryProgress';
+import Achievements from './Achievements';
+import DrillDownChart, { buildGeographicDrillDown } from './DrillDownChart';
 import { Statistics } from '../models';
 import ConfigStorage from '../storage/configStorage';
 import API from '../api';
@@ -425,81 +430,6 @@ function CalendarHeatmap({ data }: { data: { date: string; count: number }[] }) 
     );
 }
 
-function AchievementBadge({ earned, label, detail }: { earned: boolean; label: string; detail: string }) {
-    return (
-        <div className={`p-3 rounded-lg border text-center ${
-            earned
-                ? 'border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-600'
-                : 'border-gray-200 bg-gray-50 opacity-40 dark:bg-gray-800 dark:border-gray-700'
-        }`}>
-            <div className="text-2xl mb-1">{earned ? '\u{1F3C6}' : '\u{1F512}'}</div>
-            <div className="font-semibold text-sm">{label}</div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">{detail}</div>
-        </div>
-    );
-}
-
-function Achievements({ stats }: { stats: Statistics }) {
-    const uniqueAirlines = Object.keys(stats.mostCommonAirlines || {}).length;
-    const uniqueAircraft = stats.topAircraft?.length || 0;
-    const continentsVisited = stats.continentCompletion?.filter(c => c.visited > 0).length || 0;
-
-    const badges = [
-        // Flight milestones
-        { earned: stats.totalFlights >= 1, label: "First Flight", detail: "Log your first flight" },
-        { earned: stats.totalFlights >= 10, label: "Frequent Flyer", detail: "10 flights" },
-        { earned: stats.totalFlights >= 50, label: "Jet Setter", detail: "50 flights" },
-        { earned: stats.totalFlights >= 100, label: "Century Club", detail: "100 flights" },
-        { earned: stats.totalFlights >= 500, label: "Sky Veteran", detail: "500 flights" },
-        // Airport milestones
-        { earned: stats.totalUniqueAirports >= 5, label: "Explorer", detail: "Visit 5 airports" },
-        { earned: stats.totalUniqueAirports >= 25, label: "Globe Trotter", detail: "Visit 25 airports" },
-        { earned: stats.totalUniqueAirports >= 50, label: "Airport Collector", detail: "Visit 50 airports" },
-        // Country milestones
-        { earned: stats.visitedCountries >= 5, label: "Passport Stamper", detail: "Visit 5 countries" },
-        { earned: stats.visitedCountries >= 10, label: "World Traveler", detail: "Visit 10 countries" },
-        { earned: stats.visitedCountries >= 25, label: "Worldwide", detail: "Visit 25 countries" },
-        { earned: stats.visitedCountries >= 50, label: "Cartographer", detail: "Visit 50 countries" },
-        // Continent milestones
-        { earned: continentsVisited >= 3, label: "Continental", detail: "Visit 3 continents" },
-        { earned: continentsVisited >= 6, label: "Six Continents", detail: "Visit 6 continents" },
-        // Time milestones
-        { earned: (stats.totalDuration / 60) >= 24, label: "Full Day Aloft", detail: "24 hours in the air" },
-        { earned: (stats.totalDuration / 60) >= 168, label: "Week in the Sky", detail: "168 hours flying" },
-        { earned: (stats.totalDuration / 60) >= 720, label: "Month Airborne", detail: "720 hours flying" },
-        // Distance milestones
-        { earned: stats.totalDistance >= 40000, label: "Around the World", detail: "Fly 40,000 km" },
-        { earned: stats.totalDistance >= 100000, label: "100K Club", detail: "Fly 100,000 km" },
-        { earned: stats.totalDistance >= 500000, label: "Half Million", detail: "Fly 500,000 km" },
-        { earned: stats.totalDistance >= 1000000, label: "Million Miler", detail: "Fly 1,000,000 km" },
-        // Variety
-        { earned: uniqueAirlines >= 5, label: "Airline Sampler", detail: "Fly 5 airlines" },
-        { earned: uniqueAirlines >= 10, label: "Airline Connoisseur", detail: "Fly 10 airlines" },
-        { earned: uniqueAircraft >= 3, label: "Plane Spotter", detail: "Fly 3 aircraft types" },
-        { earned: uniqueAircraft >= 5, label: "Fleet Reviewer", detail: "Fly 5 aircraft types" },
-        // Time zones
-        { earned: stats.uniqueTimezones >= 5, label: "Jet Lag", detail: "Visit 5 time zones" },
-        { earned: stats.uniqueTimezones >= 15, label: "Time Traveler", detail: "Visit 15 time zones" },
-        // Red-eye
-        { earned: stats.redeyeCount >= 1, label: "Red-Eye", detail: "Take a red-eye flight" },
-        { earned: stats.redeyeCount >= 5, label: "Night Owl", detail: "5 red-eye flights" },
-        { earned: stats.redeyeCount >= 20, label: "Creature of the Night", detail: "20 red-eye flights" },
-    ];
-
-    const earnedCount = badges.filter(b => b.earned).length;
-
-    return (
-        <div>
-            <Whisper text={`${earnedCount}/${badges.length} earned`} />
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 mt-2">
-                {badges.map((badge, i) => (
-                    <AchievementBadge key={i} {...badge} />
-                ))}
-            </div>
-        </div>
-    );
-}
-
 export function AllStats({ filters }) {
     const [statistics, setStatistics] = useState<Statistics>();
     const [durationUnitIndex, setDurationUnitIndex] = useState(0);
@@ -644,6 +574,18 @@ export function AllStats({ filters }) {
                 <StatFrequency object={statistics.mostCommonCountries} measure="flights" />
             </div>
 
+            {statistics.mostCommonCountries && Object.keys(statistics.mostCommonCountries).length > 0 && (
+            <div className="container md:col-span-2 lg:col-span-3">
+                <DrillDownChart
+                    title="Geographic Breakdown"
+                    levels={buildGeographicDrillDown(
+                        statistics.mostCommonCountries as Record<string, number>,
+                        statistics.mostVisitedAirports as Record<string, number>,
+                    )}
+                />
+            </div>
+            )}
+
             <div className="container">
                 <h3 className="text-lg font-semibold mb-4">Aircraft types</h3>
                 <TopAircraftTable data={statistics.topAircraft} />
@@ -757,10 +699,32 @@ export function AllStats({ filters }) {
             </div>
             )}
 
+            {statistics.mostCommonCountries && Object.keys(statistics.mostCommonCountries).length > 0 && (
+            <div className="container md:col-span-2 lg:col-span-3">
+                <h3 className="text-lg font-semibold mb-4">Country Progress by Continent</h3>
+                <CountryProgress visitedCountries={Object.keys(statistics.mostCommonCountries)} />
+            </div>
+            )}
+
             {statistics.flightsByDay && statistics.flightsByDay.length > 0 && (
             <div className="container md:col-span-2 lg:col-span-3">
                 <h3 className="text-lg font-semibold mb-4">Flight Calendar</h3>
                 <CalendarHeatmap data={statistics.flightsByDay} />
+            </div>
+            )}
+
+            {statistics.flightsByDay && statistics.flightsByDay.length > 0 && (
+            <div className="container md:col-span-2 lg:col-span-3">
+                <h3 className="text-lg font-semibold mb-4">Flight Activity</h3>
+                {(() => {
+                    const years = new Set<number>();
+                    statistics.flightsByDay.forEach(d => {
+                        years.add(new Date(d.date + 'T00:00:00').getFullYear());
+                    });
+                    const sortedYears = Array.from(years).sort((a, b) => b - a);
+                    const currentYear = sortedYears[0] || new Date().getFullYear();
+                    return <HeatmapCalendar flights={statistics.flightsByDay} year={currentYear} />;
+                })()}
             </div>
             )}
 
@@ -811,45 +775,20 @@ export function AllStats({ filters }) {
             {(Object.keys(statistics.seatFrequency || {}).length > 0 || Object.keys(statistics.sideFrequency || {}).length > 0) && (
             <div className="container">
                 <h3 className="text-lg font-semibold mb-4">Seat Preferences</h3>
-                {Object.keys(statistics.seatFrequency || {}).length > 0 && (() => {
-                    const total = Object.values(statistics.seatFrequency).reduce((a: number, b: number) => a + b, 0) as number;
-                    return (
-                        <div className="mb-4">
-                            <h4 className="text-sm font-semibold mb-2">Seat Type</h4>
-                            {Object.entries(statistics.seatFrequency).map(([seat, count]) => {
-                                const pct = Math.round((count as number) / total * 100);
-                                return (
-                                    <div key={seat} className="flex items-center gap-2 text-sm mb-1">
-                                        <span className="w-16 capitalize">{seat}</span>
-                                        <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                                            <div className="bg-primary-400 h-2 rounded-full" style={{ width: `${pct}%` }} />
-                                        </div>
-                                        <span className="w-12 text-right text-gray-500 dark:text-gray-400">{pct}%</span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    );
-                })()}
-                {Object.keys(statistics.sideFrequency || {}).length > 0 && (() => {
-                    const total = Object.values(statistics.sideFrequency).reduce((a: number, b: number) => a + b, 0) as number;
-                    return (
-                        <div>
-                            <h4 className="text-sm font-semibold mb-2">Aircraft Side</h4>
-                            {Object.entries(statistics.sideFrequency).map(([side, count]) => {
-                                const pct = Math.round((count as number) / total * 100);
-                                return (
-                                    <div key={side} className="flex items-center gap-2 text-sm mb-1">
-                                        <span className="w-16 capitalize">{side}</span>
-                                        <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                                            <div className="bg-primary-400 h-2 rounded-full" style={{ width: `${pct}%` }} />
-                                        </div>
-                                        <span className="w-12 text-right text-gray-500 dark:text-gray-400">{pct}%</span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    );
+                {(() => {
+                    const sf = statistics.seatFrequency || {};
+                    const sidf = statistics.sideFrequency || {};
+                    const seatData = {
+                        window: (sf['window'] || sf['Window'] || 0) as number,
+                        middle: (sf['middle'] || sf['Middle'] || 0) as number,
+                        aisle: (sf['aisle'] || sf['Aisle'] || 0) as number,
+                    };
+                    const sideData = {
+                        left: (sidf['left'] || sidf['Left'] || 0) as number,
+                        right: (sidf['right'] || sidf['Right'] || 0) as number,
+                        center: (sidf['center'] || sidf['Center'] || sidf['middle'] || sidf['Middle'] || 0) as number,
+                    };
+                    return <SeatPreferenceViz seatData={seatData} sideData={sideData} />;
                 })()}
             </div>
             )}

@@ -9,6 +9,7 @@ import type { PickingInfo } from '@deck.gl/core';
 import API from '../api';
 import ConfigStorage from '../storage/configStorage';
 import { Coord, Trajectory } from '../models';
+import MapLegend from './MapLegend';
 
 const DARK_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
@@ -97,9 +98,27 @@ export default function WorldMap() {
     const getArcWidth = useCallback(
         (d: Trajectory) => {
             if (!frequencyBasedLine) return 2;
-            return Math.min(1 + (d.frequency / maxFrequency) * 5, 6);
+            const f = d.frequency;
+            if (f <= 1) return 1;
+            if (f <= 3) return 2;
+            if (f <= 6) return 3;
+            if (f <= 10) return 4;
+            return 6;
         },
         [frequencyBasedLine, maxFrequency]
+    );
+
+    const getArcColor = useCallback(
+        (d: Trajectory): [number, number, number, number] => {
+            if (!frequencyBasedLine) return [65, 182, 230, 200];
+            const f = d.frequency;
+            if (f <= 1) return [100, 149, 237, 150];
+            if (f <= 3) return [0, 200, 200, 180];
+            if (f <= 6) return [50, 205, 50, 200];
+            if (f <= 10) return [255, 215, 0, 220];
+            return [255, 69, 0, 240];
+        },
+        [frequencyBasedLine]
     );
 
     const getMarkerRadius = useCallback(
@@ -153,39 +172,80 @@ export default function WorldMap() {
         }
     }, []);
 
-    const layers = useMemo(() => [
-        new ArcLayer<Trajectory>({
-            id: 'flight-arcs',
-            data: lines,
-            getSourcePosition: (d: Trajectory) => [d.first.longitude, d.first.latitude],
-            getTargetPosition: (d: Trajectory) => [d.second.longitude, d.second.latitude],
-            getSourceColor: [65, 182, 230, 200],
-            getTargetColor: [255, 140, 0, 200],
-            getWidth: getArcWidth,
-            greatCircle: true,
-            getHeight: 0.3,
-            pickable: true,
-            autoHighlight: true,
-            highlightColor: [255, 255, 255, 100],
-            widthMinPixels: 1,
-            widthMaxPixels: 8,
-        }),
-        new ScatterplotLayer<Coord>({
-            id: 'airport-markers',
-            data: markers,
-            getPosition: (d: Coord) => [d.longitude, d.latitude],
-            getRadius: getMarkerRadius,
-            getFillColor: [255, 140, 0, 220],
-            getLineColor: [255, 255, 255, 180],
-            stroked: true,
-            lineWidthMinPixels: 1,
-            radiusMinPixels: 3,
-            radiusMaxPixels: 12,
-            pickable: true,
-            autoHighlight: true,
-            highlightColor: [255, 200, 80, 255],
-        }),
-    ], [lines, markers, getArcWidth, getMarkerRadius]);
+    const layers = useMemo(() => {
+        const result: any[] = [];
+
+        // Glow layer: wider, more transparent arcs underneath for neon effect
+        if (frequencyBasedLine) {
+            result.push(
+                new ArcLayer<Trajectory>({
+                    id: 'flight-arcs-glow',
+                    data: lines,
+                    getSourcePosition: (d: Trajectory) => [d.first.longitude, d.first.latitude],
+                    getTargetPosition: (d: Trajectory) => [d.second.longitude, d.second.latitude],
+                    getSourceColor: (d: Trajectory) => {
+                        const c = getArcColor(d);
+                        return [c[0], c[1], c[2], Math.round(c[3] * 0.3)] as [number, number, number, number];
+                    },
+                    getTargetColor: (d: Trajectory) => {
+                        const c = getArcColor(d);
+                        return [c[0], c[1], c[2], Math.round(c[3] * 0.3)] as [number, number, number, number];
+                    },
+                    getWidth: (d: Trajectory) => getArcWidth(d) * 3,
+                    greatCircle: true,
+                    getHeight: 0.3,
+                    pickable: false,
+                    widthMinPixels: 3,
+                    widthMaxPixels: 24,
+                })
+            );
+        }
+
+        // Main arc layer
+        result.push(
+            new ArcLayer<Trajectory>({
+                id: 'flight-arcs',
+                data: lines,
+                getSourcePosition: (d: Trajectory) => [d.first.longitude, d.first.latitude],
+                getTargetPosition: (d: Trajectory) => [d.second.longitude, d.second.latitude],
+                getSourceColor: frequencyBasedLine
+                    ? ((d: Trajectory) => getArcColor(d))
+                    : [65, 182, 230, 200],
+                getTargetColor: frequencyBasedLine
+                    ? ((d: Trajectory) => getArcColor(d))
+                    : [255, 140, 0, 200],
+                getWidth: getArcWidth,
+                greatCircle: true,
+                getHeight: 0.3,
+                pickable: true,
+                autoHighlight: true,
+                highlightColor: [255, 255, 255, 100],
+                widthMinPixels: 1,
+                widthMaxPixels: 8,
+            })
+        );
+
+        // Airport markers
+        result.push(
+            new ScatterplotLayer<Coord>({
+                id: 'airport-markers',
+                data: markers,
+                getPosition: (d: Coord) => [d.longitude, d.latitude],
+                getRadius: getMarkerRadius,
+                getFillColor: [255, 140, 0, 220],
+                getLineColor: [255, 255, 255, 180],
+                stroked: true,
+                lineWidthMinPixels: 1,
+                radiusMinPixels: 3,
+                radiusMaxPixels: 12,
+                pickable: true,
+                autoHighlight: true,
+                highlightColor: [255, 200, 80, 255],
+            })
+        );
+
+        return result;
+    }, [lines, markers, getArcWidth, getArcColor, getMarkerRadius, frequencyBasedLine]);
 
     const onMapLoad = useCallback(() => {
         const map = mapRef.current?.getMap();
@@ -248,6 +308,8 @@ export default function WorldMap() {
                     getTooltip={null}
                 />
             </MapGL>
+
+            {frequencyBasedLine && <MapLegend />}
 
             {tooltip && (
                 <div

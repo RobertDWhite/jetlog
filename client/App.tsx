@@ -17,6 +17,7 @@ import AirportDetail from './pages/AirportDetail';
 import Compensation from './pages/Compensation';
 
 import Navbar from './components/Navbar';
+import BottomNav from './components/BottomNav';
 import CommandPalette from './components/CommandPalette';
 
 function useKeyboardShortcuts(onSearchOpen: () => void) {
@@ -75,9 +76,10 @@ function AppLayout() {
     return (
         <>
             <Navbar onSearchOpen={openSearch} />
-            <div className="h-full p-4 overflow-x-auto">
+            <div className="h-full p-4 pb-24 md:pb-4 overflow-x-auto">
                 <Outlet />
             </div>
+            <BottomNav />
             <CommandPalette isOpen={searchOpen} onClose={closeSearch} />
         </>
     );

@@ -7,9 +7,9 @@
         "watch": "PARCEL_WORKERS=0 parcel watch --dist-dir dist"
     },
     "dependencies": {
-        "@deck.gl/core": "^9.1.4",
-        "@deck.gl/layers": "^9.1.4",
-        "@deck.gl/mapbox": "^9.1.4",
+        "@deck.gl/core": "9.2.0",
+        "@deck.gl/layers": "9.2.0",
+        "@deck.gl/mapbox": "9.2.0",
         "axios": "^1.7.2",
         "maplibre-gl": "^4.7.1",
         "parcel": "^2.0.0",
@@ -20,6 +20,13 @@
         "react-router-dom": "^6.24.0",
         "recharts": "^3.7.0",
         "tailwindcss": "^3.4.4"
+    },
+    "overrides": {
+        "@luma.gl/core": "9.2.0",
+        "@luma.gl/webgl": "9.2.0",
+        "@luma.gl/engine": "9.2.0",
+        "@luma.gl/shadertools": "9.2.0",
+        "@luma.gl/constants": "9.2.0"
     },
     "devDependencies": {
         "@parcel/packager-raw-url": "^2.16.4",

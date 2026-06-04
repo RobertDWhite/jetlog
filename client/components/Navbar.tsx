@@ -96,7 +96,7 @@ function NavMenu({ items, darkToggle }) {
                             ${open ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}
                             bg-gray-800/95 backdrop-blur-md absolute top-[3.5em] right-0 z-50 rounded-bl-lg shadow-xl border-l border-b border-gray-700/50`}
                  onClick={toggleOpen}>
-                {[items.home, items.new, items.flights, items.statistics, items.review, items.settings, darkToggle]}
+                {[items.home, items.new, items.flights, items.statistics, items.family, items.review, items.settings, darkToggle]}
             </div>
         </div>
     );
@@ -112,6 +112,7 @@ export default function Navbar({ onSearchOpen }: NavbarProps) {
         'new': <NavItem key="new" to="/new" text="New" />,
         'flights': <NavItem key="all flights" to="/flights" text="All Flights" />,
         'statistics': <NavItem key="statistics" to="/statistics" text="Statistics" />,
+        'family': <NavItem key="family" to="/family" text="Family" />,
         'review': <NavItem key="review" to="/review" text="Review" />,
         'settings': <NavItem key="settings" to="/settings" text="Settings" right />
     };
@@ -123,7 +124,7 @@ export default function Navbar({ onSearchOpen }: NavbarProps) {
         <nav className="hidden md:block bg-gradient-to-r from-gray-800 via-gray-800 to-gray-900 backdrop-blur-md border-b border-gray-700/50 list-none sticky top-0 z-50 shadow-lg">
             <div className="flex justify-between">
                 <div className="flex">
-                {[items.home, items.new, items.flights, items.statistics, items.review]}
+                {[items.home, items.new, items.flights, items.statistics, items.family, items.review]}
                 </div>
 
                 <div className="flex items-center">

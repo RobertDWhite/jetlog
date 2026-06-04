@@ -15,6 +15,8 @@ import PublicProfile from './pages/PublicProfile';
 import Gallery from './pages/Gallery';
 import AirportDetail from './pages/AirportDetail';
 import Compensation from './pages/Compensation';
+import Family from './pages/Family';
+import CompanionProfile from './pages/CompanionProfile';
 
 import Navbar from './components/Navbar';
 import BottomNav from './components/BottomNav';
@@ -104,6 +106,8 @@ export function App() {
                     <Route path="/review" element={<YearInReview />} />
                     <Route path="/gallery" element={<Gallery />} />
                     <Route path="/airport/:icao" element={<AirportDetail />} />
+                    <Route path="/family" element={<Family />} />
+                    <Route path="/family/:id" element={<CompanionProfile />} />
                     <Route path="/profile/:username" element={<PublicProfile />} />
                     <Route path="/compensation" element={<Compensation />} />
                     <Route path="/settings" element={<Settings />} />

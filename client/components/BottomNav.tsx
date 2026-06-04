@@ -74,6 +74,14 @@ function StatsIcon() {
     );
 }
 
+function FamilyIcon() {
+    return (
+        <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-1a4 4 0 00-3-3.87M9 20H4v-1a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm5-4a3 3 0 10-3-3" />
+        </svg>
+    );
+}
+
 function SettingsIcon() {
     return (
         <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
@@ -99,6 +107,7 @@ export default function BottomNav() {
                 <Tab to="/flights" label="Flights" icon={<FlightsIcon />} />
                 <Tab to="/new" label="Add" icon={<AddIcon />} accent />
                 <Tab to="/statistics" label="Stats" icon={<StatsIcon />} />
+                <Tab to="/family" label="Family" icon={<FamilyIcon />} />
                 <Tab to="/settings" label="Settings" icon={<SettingsIcon />} />
             </div>
         </nav>

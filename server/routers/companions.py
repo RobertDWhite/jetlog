@@ -72,6 +72,26 @@ class FlightCompanionsSet(CamelableModel):
     names: list[str] = []
 
 
+class BulkAssignCompanions(CamelableModel):
+    ids: list[int] = []
+    names: list[str] = []
+
+
+def _dedup_names(names: list[str]) -> list[str]:
+    seen: set[str] = set()
+    clean: list[str] = []
+    for raw in names:
+        name = (raw or "").strip()
+        if not name:
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        clean.append(name)
+    return clean
+
+
 def _check_flight_access(flight_id: int, user: User, db: Session) -> Flight:
     """Verify the flight exists and the user owns it (or is admin)."""
     flight = db.query(Flight).filter(Flight.id == flight_id).first()
@@ -335,16 +355,8 @@ async def set_flight_companions(
     flight = _check_flight_access(flight_id, user, db)
     owner = flight.username
 
-    seen: set[str] = set()
     companion_ids: list[int] = []
-    for raw in body.names:
-        name = (raw or "").strip()
-        if not name:
-            continue
-        key = name.lower()
-        if key in seen:
-            continue
-        seen.add(key)
+    for name in _dedup_names(body.names):
         companion = _get_or_create_companion(name, owner, db)
         companion_ids.append(companion.id)
 
@@ -360,3 +372,34 @@ async def set_flight_companions(
     companions = db.query(Companion).filter(Companion.id.in_(companion_ids)).all()
     companions.sort(key=lambda c: companion_ids.index(c.id))
     return [_summary(c) for c in companions]
+
+
+@router.post("/companions/bulk-assign")
+async def bulk_assign_companions(
+    body: BulkAssignCompanions,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Add companions to many flights at once, keeping each flight's existing companions."""
+    names = _dedup_names(body.names)
+    if not names or not body.ids:
+        return {"updated": 0}
+
+    # Verify access to every flight before making changes
+    flights = [_check_flight_access(fid, user, db) for fid in body.ids]
+
+    updated = 0
+    for flight in flights:
+        existing_ids = {
+            row[0] for row in db.query(FlightCompanion.companion_id)
+            .filter(FlightCompanion.flight_id == flight.id).all()
+        }
+        for name in names:
+            companion = _get_or_create_companion(name, flight.username, db)
+            if companion.id not in existing_ids:
+                db.add(FlightCompanion(flight_id=flight.id, companion_id=companion.id))
+                existing_ids.add(companion.id)
+        updated += 1
+
+    db.commit()
+    return {"updated": updated}

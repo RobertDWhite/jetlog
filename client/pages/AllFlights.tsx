@@ -6,6 +6,7 @@ import UserSelect from '../components/UserSelect';
 import SingleFlight from '../components/SingleFlight';
 import AirlineLogo from '../components/AirlineLogo';
 import TripTimeline from '../components/TripTimeline';
+import CompanionPicker from '../components/CompanionPicker';
 import { Flight } from '../models'
 
 import API from '../api'
@@ -198,6 +199,7 @@ function FlightsTable({ filters }: { filters: FlightsFilters }) {
     const [sortCol, setSortCol] = useState(filters.sort || 'date');
     const [sortOrder, setSortOrder] = useState(filters.order || 'DESC');
     const [showBulkEdit, setShowBulkEdit] = useState(false);
+    const [bulkCompanions, setBulkCompanions] = useState<string[]>([]);
     const navigate = useNavigate();
     const metricUnits = ConfigStorage.getSetting("metricUnits");
 
@@ -268,7 +270,7 @@ function FlightsTable({ filters }: { filters: FlightsFilters }) {
         });
     };
 
-    const bulkEdit = (e: React.FormEvent) => {
+    const bulkEdit = async (e: React.FormEvent) => {
         e.preventDefault();
         const form = e.target as HTMLFormElement;
         const data = new FormData(form);
@@ -276,11 +278,20 @@ function FlightsTable({ filters }: { filters: FlightsFilters }) {
         for (const [key, val] of data.entries()) {
             if (val) payload[key] = val;
         }
-        if (Object.keys(payload).length <= 1) return; // only ids, no edits
-        API.post('/flights/bulk-edit', payload)
-        .then(() => {
+        const hasFieldEdits = Object.keys(payload).length > 1; // more than just ids
+        const hasCompanions = bulkCompanions.length > 0;
+        if (!hasFieldEdits && !hasCompanions) return;
+
+        try {
+            if (hasFieldEdits) {
+                await API.post('/flights/bulk-edit', payload);
+            }
+            if (hasCompanions) {
+                await API.post('/companions/bulk-assign', { ids: Array.from(selected), names: bulkCompanions });
+            }
             setShowBulkEdit(false);
             setSelected(new Set());
+            setBulkCompanions([]);
             // Re-fetch to show updated data
             const paginatedFilters = {
                 ...filters,
@@ -289,9 +300,11 @@ function FlightsTable({ filters }: { filters: FlightsFilters }) {
                 limit: PAGE_SIZE + 1,
                 offset: page * PAGE_SIZE,
             };
-            API.get(`/flights?metric=${metricUnits}`, paginatedFilters)
-            .then((data: Flight[]) => setFlights(data));
-        });
+            const refreshed = await API.get(`/flights?metric=${metricUnits}`, paginatedFilters);
+            setFlights(refreshed);
+        } catch (err) {
+            // handled by API class
+        }
     };
 
     const hasNextPage = flights.length > PAGE_SIZE;
@@ -301,7 +314,7 @@ function FlightsTable({ filters }: { filters: FlightsFilters }) {
     <>
         {selected.size > 0 && (
             <div className="mb-2 flex gap-2 items-center flex-wrap">
-                <Button text={`Edit ${selected.size} selected`} level="primary" onClick={() => setShowBulkEdit(true)} />
+                <Button text={`Edit ${selected.size} selected`} level="primary" onClick={() => { setBulkCompanions([]); setShowBulkEdit(true); }} />
                 <Button text={`Delete ${selected.size} selected`} level="danger" onClick={bulkDelete} />
             </div>
         )}
@@ -352,6 +365,13 @@ function FlightsTable({ filters }: { filters: FlightsFilters }) {
                         <div>
                             <Label text="Airline (ICAO code)" />
                             <Input type="text" name="airline" placeholder="e.g. DAL, UAL, AAL" />
+                        </div>
+                        <div>
+                            <Label text="Add companions" />
+                            <CompanionPicker value={bulkCompanions} onChange={setBulkCompanions} />
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                Added to all selected flights — existing companions are kept. New names create a profile.
+                            </p>
                         </div>
                         <div className="flex gap-2 pt-2">
                             <Button text="Apply" level="primary" submit={true} />

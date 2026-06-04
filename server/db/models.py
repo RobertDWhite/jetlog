@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, Text, Float, DateTime, ForeignKey,
-    CheckConstraint, func
+    CheckConstraint, UniqueConstraint, func
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -176,3 +176,33 @@ class CustomFieldValue(Base):
 
     def __repr__(self):
         return f"<CustomFieldValue(id={self.id}, flight_id={self.flight_id}, field_def_id={self.field_def_id})>"
+
+
+class Companion(Base):
+    """A family member or travel companion owned by a user. Profiles are
+    auto-generated when a new name is attached to a flight."""
+    __tablename__ = "companions"
+    __table_args__ = (
+        UniqueConstraint("username", "name", name="uq_companions_owner_name"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(Text, ForeignKey("users.username"), nullable=False)
+    name = Column(Text, nullable=False)
+    relation = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_on = Column(DateTime, nullable=False, server_default=func.current_timestamp())
+
+    def __repr__(self):
+        return f"<Companion(id={self.id}, name='{self.name}', username='{self.username}')>"
+
+
+class FlightCompanion(Base):
+    """Join table linking a flight to the companions who were on it."""
+    __tablename__ = "flight_companions"
+
+    flight_id = Column(Integer, ForeignKey("flights.id", ondelete="CASCADE"), primary_key=True)
+    companion_id = Column(Integer, ForeignKey("companions.id", ondelete="CASCADE"), primary_key=True)
+
+    def __repr__(self):
+        return f"<FlightCompanion(flight_id={self.flight_id}, companion_id={self.companion_id})>"

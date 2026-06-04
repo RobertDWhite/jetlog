@@ -122,6 +122,45 @@ export class Statistics {
     redeyeCount: number;
 }
 
+export class Companion {
+    id: number;
+    name: string;
+    relation: string | null;
+    notes: string | null;
+    createdOn: string | null;
+    flightCount: number;
+    totalDistance: number;
+    lastFlight: string | null;
+}
+
+export class CompanionFlightSummary {
+    id: number;
+    date: string;
+    origin: string;
+    originIata: string | null;
+    destination: string;
+    destinationIata: string | null;
+    distance: number | null;
+    duration: number | null;
+}
+
+export class CompanionProfile {
+    id: number;
+    name: string;
+    relation: string | null;
+    notes: string | null;
+    createdOn: string | null;
+    flightCount: number;
+    totalDistance: number;
+    totalDuration: number;
+    uniqueAirports: number;
+    uniqueCountries: number;
+    firstFlight: string | null;
+    lastFlight: string | null;
+    topDestinations: { country: string; count: number }[];
+    flights: CompanionFlightSummary[];
+}
+
 export class Coord {
     latitude: number;
     longitude: number;

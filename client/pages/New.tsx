@@ -9,6 +9,7 @@ import { Airline, Airport, User } from '../models';
 import ConfigStorage from '../storage/configStorage';
 import FetchConnection from '../components/FetchConnection';
 import BoardingPassScanner from '../components/BoardingPassScanner';
+import CompanionPicker from '../components/CompanionPicker';
 
 interface LegData {
     origin?: Airport;
@@ -175,6 +176,7 @@ export default function New() {
 
     const [legs, setLegs] = useState<LegData[]>([defaultLeg()]);
     const [connection, setConnection] = useState<number>();
+    const [companionNames, setCompanionNames] = useState<string[]>([]);
 
     // delegation (admin-only for now)
     const [currentUser, setCurrentUser] = useState<User | undefined>();
@@ -368,13 +370,18 @@ export default function New() {
                     payload = payload.map(p => ({ ...p, connection }));
                 }
 
+                let createdFlightID: number;
                 if (payload.length === 1) {
-                    const flightID = await API.post(`/flights?timezones=${localAirportTime}`, payload[0]);
-                    navigate(`/flights?id=${flightID}`);
+                    createdFlightID = await API.post(`/flights?timezones=${localAirportTime}`, payload[0]);
                 } else {
-                    const creatorFlightID = await API.post(`/flights/many?timezones=${localAirportTime}`, payload);
-                    navigate(`/flights?id=${creatorFlightID}`);
+                    createdFlightID = await API.post(`/flights/many?timezones=${localAirportTime}`, payload);
                 }
+
+                if (companionNames.length > 0 && createdFlightID > 0) {
+                    await API.post(`/flights/${createdFlightID}/companions`, { names: companionNames });
+                }
+
+                navigate(`/flights?id=${createdFlightID}`);
             } else {
                 let firstId: number | undefined;
                 for (const username of selectedUsernames) {
@@ -887,6 +894,16 @@ export default function New() {
                                 </label>
                             ))}
                         </div>
+                    </div>
+                )}
+
+                {!isMultiLeg && (
+                    <div className="px-4 pb-2">
+                        <Label text="Flew with (family & companions)" />
+                        <CompanionPicker value={companionNames} onChange={setCompanionNames} />
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            New names create a profile automatically — view them on the Family page.
+                        </p>
                     </div>
                 )}
 

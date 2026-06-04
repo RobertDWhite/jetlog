@@ -6,6 +6,7 @@ import { Airline, Airport, Flight, User } from '../models';
 import SearchInput from './SearchInput';
 import ShareableCard from './ShareableCard';
 import FrequentFlyerSection from './FrequentFlyerSection';
+import CompanionsSection from './CompanionsSection';
 import CustomFieldsEditor from './CustomFieldsEditor';
 import API, { BASE_URL } from '../api';
 import ConfigStorage from '../storage/configStorage';
@@ -321,6 +322,10 @@ export default function SingleFlight({ flightID }) {
 
                 <div className="container">
                     <FrequentFlyerSection flightId={flight.id} canEdit={selfUsername === flight.username} />
+                </div>
+
+                <div className="container">
+                    <CompanionsSection flightId={flight.id} canEdit={selfUsername === flight.username} />
                 </div>
 
                 <div className="container">

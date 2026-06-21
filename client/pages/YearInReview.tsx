@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-import { Heading, Spinner, Select, Button } from '../components/Elements';
+import { Heading, Spinner, Select, Button, Checkbox } from '../components/Elements';
 import AirlineLogo from '../components/AirlineLogo';
 import AnimatedRouteExport from '../components/AnimatedRouteExport';
 import { Statistics } from '../models';
@@ -36,22 +36,30 @@ function ComparisonStat({ value, unit, comparison }: { value: string; unit: stri
 export default function YearInReview() {
     const [searchParams] = useSearchParams();
     const currentYear = new Date().getFullYear();
-    const [year, setYear] = useState(parseInt(searchParams.get('year') || String(currentYear)));
+    const initialYear = parseInt(searchParams.get('year') || String(currentYear));
+    const [fromYear, setFromYear] = useState(initialYear);
+    const [toYear, setToYear] = useState(initialYear);
+    const [allTime, setAllTime] = useState(false);
     const [stats, setStats] = useState<Statistics>();
     const [loading, setLoading] = useState(true);
     const [animExportOpen, setAnimExportOpen] = useState(false);
     const metricUnits = ConfigStorage.getSetting('metricUnits');
 
+    const lo = Math.min(fromYear, toYear);
+    const hi = Math.max(fromYear, toYear);
+    const spanLabel = allTime ? 'All Time' : (lo === hi ? String(lo) : `${lo}–${hi}`);
+    const headingText = allTime
+        ? 'All-Time Review'
+        : (lo === hi ? `${lo} Year in Review` : `${spanLabel} Review`);
+
     useEffect(() => {
         setLoading(true);
-        API.get(`/statistics?metric=${metricUnits}`, {
-            start: `${year}-01-01`,
-            end: `${year}-12-31`
-        }).then((data: Statistics) => {
+        const params = allTime ? {} : { start: `${lo}-01-01`, end: `${hi}-12-31` };
+        API.get(`/statistics?metric=${metricUnits}`, params).then((data: Statistics) => {
             setStats(data);
             setLoading(false);
         });
-    }, [year]);
+    }, [fromYear, toYear, allTime]);
 
     if (loading || !stats) return <Spinner />;
 
@@ -81,12 +89,28 @@ export default function YearInReview() {
     return (
         <div className="max-w-3xl mx-auto">
             <div className="text-center mb-8">
-                <Heading text={`${year} Year in Review`} />
-                <Select
-                    options={yearOptions}
-                    defaultValue={String(year)}
-                    onChange={(e) => setYear(parseInt(e.target.value))}
-                />
+                <Heading text={headingText} />
+                <div className="flex flex-wrap items-center justify-center gap-3 mt-2">
+                    <label className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400">
+                        <Checkbox checked={allTime} onChange={(e) => setAllTime(e.target.checked)} />
+                        All time
+                    </label>
+                    {!allTime && (
+                    <div className="flex items-center gap-2">
+                        <Select
+                            options={yearOptions}
+                            value={String(fromYear)}
+                            onChange={(e) => setFromYear(parseInt(e.target.value))}
+                        />
+                        <span className="text-gray-500 text-sm">to</span>
+                        <Select
+                            options={yearOptions}
+                            value={String(toYear)}
+                            onChange={(e) => setToYear(parseInt(e.target.value))}
+                        />
+                    </div>
+                    )}
+                </div>
                 <div className="mt-2">
                     <Button text="Export Animation" level="primary" onClick={() => setAnimExportOpen(true)} />
                 </div>
@@ -95,11 +119,14 @@ export default function YearInReview() {
             <AnimatedRouteExport
                 isOpen={animExportOpen}
                 onClose={() => setAnimExportOpen(false)}
-                year={year}
+                startYear={allTime ? undefined : lo}
+                endYear={allTime ? undefined : hi}
             />
 
             {stats.totalFlights === 0 ? (
-                <p className="text-center text-gray-500 text-lg">No flights logged in {year}</p>
+                <p className="text-center text-gray-500 text-lg">
+                    {allTime ? 'No flights logged' : `No flights logged in ${spanLabel}`}
+                </p>
             ) : (
             <>
                 {/* Hero stats */}
@@ -133,7 +160,7 @@ export default function YearInReview() {
 
                 {/* Favorites */}
                 <div className="container mb-6">
-                    <h3 className="text-lg font-semibold mb-4">Your {year} Favorites</h3>
+                    <h3 className="text-lg font-semibold mb-4">Your {spanLabel} Favorites</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
                             <p className="text-sm text-gray-500 dark:text-gray-400">Top Airport</p>
@@ -161,7 +188,7 @@ export default function YearInReview() {
                 {/* CO2 Detail for the year */}
                 {co2 > 0 && (
                 <div className="container mb-6">
-                    <h3 className="text-lg font-semibold mb-4">{year} Carbon Footprint</h3>
+                    <h3 className="text-lg font-semibold mb-4">{spanLabel} Carbon Footprint</h3>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="text-center p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
                             <div className="text-3xl font-bold text-orange-500">
@@ -188,7 +215,7 @@ export default function YearInReview() {
                 {/* Records */}
                 {stats.records && Object.keys(stats.records).length > 0 && (
                 <div className="container mb-6">
-                    <h3 className="text-lg font-semibold mb-4">{year} Records</h3>
+                    <h3 className="text-lg font-semibold mb-4">{spanLabel} Records</h3>
                     <div className="space-y-2">
                         {stats.records.longestDistance && (
                             <p>Longest flight: <span className="font-medium">

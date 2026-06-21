@@ -10,7 +10,10 @@ import ConfigStorage from '../storage/configStorage';
 interface AnimatedRouteExportProps {
     isOpen: boolean;
     onClose: () => void;
-    year?: number; // optional: animate only flights from a specific year
+    // Optional initial span. Either bound may be undefined (open); both
+    // undefined = all flights across every year.
+    startYear?: number;
+    endYear?: number;
 }
 
 type FormatPreset = 'square' | 'landscape' | 'portrait';
@@ -33,6 +36,33 @@ const SPEED_MAP: Record<SpeedPreset, number> = {
     normal: 500,
     fast:   250,
 };
+
+// --- Year span helpers ---
+
+// Order a (from, to) span low→high. Either bound may be undefined (open).
+function orderedSpan(fromYear?: number, toYear?: number): [number | undefined, number | undefined] {
+    if (fromYear !== undefined && toYear !== undefined) {
+        return [Math.min(fromYear, toYear), Math.max(fromYear, toYear)];
+    }
+    return [fromYear, toYear];
+}
+
+// Human label: 'all years' | '2023' | '2019–2023' | 'from 2019' | 'through 2023'
+function spanLabel(fromYear?: number, toYear?: number): string {
+    const [lo, hi] = orderedSpan(fromYear, toYear);
+    if (lo === undefined && hi === undefined) return 'all years';
+    if (lo !== undefined && hi !== undefined) return lo === hi ? String(lo) : `${lo}–${hi}`;
+    if (lo !== undefined) return `from ${lo}`;
+    return `through ${hi}`;
+}
+
+// Filename suffix: '' | '-2023' | '-2019-2023' | '-2019' | '-2023'
+function spanFileSuffix(fromYear?: number, toYear?: number): string {
+    const [lo, hi] = orderedSpan(fromYear, toYear);
+    if (lo === undefined && hi === undefined) return '';
+    if (lo !== undefined && hi !== undefined) return lo === hi ? `-${lo}` : `-${lo}-${hi}`;
+    return `-${lo ?? hi}`;
+}
 
 // --- Great circle interpolation ---
 
@@ -258,14 +288,15 @@ function prepareFlights(flights: Flight[]): AnimFlight[] {
 
 // --- Main Component ---
 
-export default function AnimatedRouteExport({ isOpen, onClose, year }: AnimatedRouteExportProps) {
+export default function AnimatedRouteExport({ isOpen, onClose, startYear, endYear }: AnimatedRouteExportProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const animFrameRef = useRef<number>(0);
     const recorderRef = useRef<MediaRecorder | null>(null);
 
     const [format, setFormat] = useState<FormatPreset>('landscape');
     const [speed, setSpeed] = useState<SpeedPreset>('normal');
-    const [selectedYear, setSelectedYear] = useState<number | undefined>(year);
+    const [fromYear, setFromYear] = useState<number | undefined>(startYear);
+    const [toYear, setToYear] = useState<number | undefined>(endYear);
 
     const [flights, setFlights] = useState<AnimFlight[]>([]);
     const [worldGeo, setWorldGeo] = useState<any>(null);
@@ -287,6 +318,14 @@ export default function AnimatedRouteExport({ isOpen, onClose, year }: AnimatedR
         })),
     ];
 
+    // Each time the modal opens, sync the span to whatever the page passed in.
+    useEffect(() => {
+        if (isOpen) {
+            setFromYear(startYear);
+            setToYear(endYear);
+        }
+    }, [isOpen, startYear, endYear]);
+
     // Fetch data
     useEffect(() => {
         if (!isOpen) return;
@@ -297,10 +336,9 @@ export default function AnimatedRouteExport({ isOpen, onClose, year }: AnimatedR
             order: 'ASC',
             sort: 'date',
         };
-        if (selectedYear) {
-            params.start = `${selectedYear}-01-01`;
-            params.end = `${selectedYear}-12-31`;
-        }
+        const [lo, hi] = orderedSpan(fromYear, toYear);
+        if (lo !== undefined) params.start = `${lo}-01-01`;
+        if (hi !== undefined) params.end = `${hi}-12-31`;
 
         Promise.all([
             API.get('/flights', params),
@@ -312,7 +350,7 @@ export default function AnimatedRouteExport({ isOpen, onClose, year }: AnimatedR
         }).catch(() => {
             setLoading(false);
         });
-    }, [isOpen, selectedYear]);
+    }, [isOpen, fromYear, toYear]);
 
     // Draw a single static frame (initial state or final state)
     const drawStaticFrame = useCallback((showAll: boolean) => {
@@ -584,7 +622,7 @@ export default function AnimatedRouteExport({ isOpen, onClose, year }: AnimatedR
             const blob = new Blob(chunks, { type: selectedMime.split(';')[0] });
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
-            const yearSuffix = selectedYear ? `-${selectedYear}` : '';
+            const yearSuffix = spanFileSuffix(fromYear, toYear);
             link.download = `jetlog-flights${yearSuffix}.webm`;
             link.href = url;
             document.body.appendChild(link);
@@ -605,7 +643,7 @@ export default function AnimatedRouteExport({ isOpen, onClose, year }: AnimatedR
                 }
             }, 200);
         });
-    }, [flights, worldGeo, format, speed, selectedYear, recording, previewing, runAnimation]);
+    }, [flights, worldGeo, format, speed, fromYear, toYear, recording, previewing, runAnimation]);
 
     // Cancel animation
     const handleCancel = useCallback(() => {
@@ -662,7 +700,7 @@ export default function AnimatedRouteExport({ isOpen, onClose, year }: AnimatedR
                         <Spinner />
                     ) : flights.length === 0 ? (
                         <p className="text-center text-gray-400 text-lg py-8">
-                            No flights found{selectedYear ? ` for ${selectedYear}` : ''}. Add some flights first!
+                            No flights found for {spanLabel(fromYear, toYear)}. Add some flights first!
                         </p>
                     ) : (
                         <>
@@ -693,12 +731,20 @@ export default function AnimatedRouteExport({ isOpen, onClose, year }: AnimatedR
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm text-gray-400 mb-1">Year</label>
-                                    <Select
-                                        options={yearOptions}
-                                        value={selectedYear ? String(selectedYear) : ''}
-                                        onChange={(e) => setSelectedYear(e.target.value ? parseInt(e.target.value) : undefined)}
-                                    />
+                                    <label className="block text-sm text-gray-400 mb-1">Years</label>
+                                    <div className="flex items-center gap-2">
+                                        <Select
+                                            options={yearOptions}
+                                            value={fromYear ? String(fromYear) : ''}
+                                            onChange={(e) => setFromYear(e.target.value ? parseInt(e.target.value) : undefined)}
+                                        />
+                                        <span className="text-gray-500 text-sm">to</span>
+                                        <Select
+                                            options={yearOptions}
+                                            value={toYear ? String(toYear) : ''}
+                                            onChange={(e) => setToYear(e.target.value ? parseInt(e.target.value) : undefined)}
+                                        />
+                                    </div>
                                 </div>
                                 <div className="text-sm text-gray-500 ml-auto">
                                     {flights.length} flight{flights.length !== 1 ? 's' : ''} to animate

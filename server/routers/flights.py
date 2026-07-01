@@ -220,6 +220,8 @@ async def add_flight(flight: FlightModel, timezones: bool = True, user: User = D
         currency=flight.currency,
         rating=flight.rating,
         connection=flight.connection,
+        points=flight.points,
+        points_program=flight.points_program,
     )
 
     db.add(new_flight)
@@ -259,6 +261,8 @@ class FlightPatchModel(CustomModel):
     notes: str | None = None
     rating: int | None = None
     connection: int | None = None
+    points: int | None = None
+    points_program: str | None = None
 
 
 @router.patch("", status_code=200)

@@ -30,6 +30,8 @@ export class Flight {
     notes: string;
     cost: number;
     currency: string;
+    points: number;
+    pointsProgram: string;
     rating: number;
     connection: number;
 

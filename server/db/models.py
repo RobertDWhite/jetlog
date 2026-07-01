@@ -57,6 +57,8 @@ class Flight(Base):
     currency = Column(Text, nullable=True)
     rating = Column(Integer, nullable=True)
     connection = Column(Integer, ForeignKey("flights.id", ondelete="SET NULL"), nullable=True)
+    points = Column(Integer, nullable=True)
+    points_program = Column(Text, nullable=True)
 
     connected_flight = relationship("Flight", remote_side=[id], foreign_keys=[connection])
     fr24_sync = relationship("FR24SyncedFlight", back_populates="flight", uselist=False,

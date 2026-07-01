@@ -217,6 +217,8 @@ class FlightModel(CustomModel):
     currency: str | None = None
     rating: int | None = None
     connection: int | None = None
+    points: int | None = None
+    points_program: str | None = None
 
     @field_validator('origin', 'destination')
     @classmethod

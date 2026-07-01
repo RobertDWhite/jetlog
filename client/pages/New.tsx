@@ -134,6 +134,28 @@ function TravelerFields({ username }: { username: string }) {
                         ]} />
             </div>
         </div>
+        <div className="grid grid-cols-2 gap-3 mt-2">
+            <div>
+                <Label text="Points / Miles Redeemed" />
+                <Input type="number" name={`points__${username}`} placeholder="0" />
+            </div>
+            <div>
+                <Label text="Rewards Program" />
+                <Select name={`pointsProgram__${username}`}
+                        options={[
+                            { text: "None", value: "" },
+                            { text: "Delta SkyMiles", value: "Delta SkyMiles" },
+                            { text: "United MileagePlus", value: "United MileagePlus" },
+                            { text: "American AAdvantage", value: "American AAdvantage" },
+                            { text: "Southwest Rapid Rewards", value: "Southwest Rapid Rewards" },
+                            { text: "Amex Membership Rewards", value: "Amex Membership Rewards" },
+                            { text: "Chase Ultimate Rewards", value: "Chase Ultimate Rewards" },
+                            { text: "Avios", value: "Avios" },
+                            { text: "Points", value: "Points" },
+                            { text: "Other", value: "Other" },
+                        ]} />
+            </div>
+        </div>
         <div className="mt-2">
             <Label text="Rating" />
             <StarRating name={`rating__${username}`} />

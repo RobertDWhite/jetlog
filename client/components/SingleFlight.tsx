@@ -290,6 +290,19 @@ export default function SingleFlight({ flightID }) {
                                                         onFetched={(c: number) => setFlight(prev => ({...prev!, connection: c}))} /></p>
                         <p>Cost: <Input type="number" name="cost" placeholder={flight.cost?.toString() || "0.00"} /></p>
                         <p>Currency: <Input type="text" name="currency" placeholder={flight.currency || "USD"} /></p>
+                        <p>Points: <Input type="number" name="points" placeholder={flight.points?.toString() || "0"} /></p>
+                        <p>Rewards Program: <Select name="pointsProgram" options={[
+                            { text: flight.pointsProgram || "None", value: "" },
+                            { text: "Delta SkyMiles", value: "Delta SkyMiles" },
+                            { text: "United MileagePlus", value: "United MileagePlus" },
+                            { text: "American AAdvantage", value: "American AAdvantage" },
+                            { text: "Southwest Rapid Rewards", value: "Southwest Rapid Rewards" },
+                            { text: "Amex Membership Rewards", value: "Amex Membership Rewards" },
+                            { text: "Chase Ultimate Rewards", value: "Chase Ultimate Rewards" },
+                            { text: "Avios", value: "Avios" },
+                            { text: "Points", value: "Points" },
+                            { text: "Other", value: "Other" }
+                        ]} /></p>
                         <p>Rating: <StarRatingInput value={flight.rating} name="rating" /></p>
                         <p>Notes</p>
                         <TextArea name="notes" defaultValue={flight.notes}/>
@@ -306,6 +319,7 @@ export default function SingleFlight({ flightID }) {
                         <p>Flight Number: <span>{flight.flightNumber || "N/A"}</span></p>
                         <p>Connection: <span>{flight.connection ? <a href={`/flights?id=${flight.connection}`} className="underline">link</a> : "N/A"}</span></p>
                         <p>Cost: <span>{flight.cost ? `${flight.cost} ${flight.currency || ''}` : "N/A"}</span></p>
+                        <p>Points: <span>{flight.points ? `${flight.points} ${flight.pointsProgram || 'points'}` : "N/A"}</span></p>
                         <p>Rating: <span>{flight.rating ? '\u2605'.repeat(flight.rating) + '\u2606'.repeat(5 - flight.rating) : 'N/A'}</span></p>
                         <p>Notes: {flight.notes ?  <p className="whitespace-pre-line inline">{flight.notes}</p> : "N/A"}</p>
                     </>}

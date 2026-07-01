@@ -575,7 +575,7 @@ async def get_flights(id: int | None = None,
     # get rid of origin, destination, and airline ICAOs for proper conversion
     # after this, each flight_db is in the format:
     # [id, username, date, departure_time, ..., AirportModel, AirportModel, AirlineModel]
-    res = [db_flight[:3] + db_flight[5:15] + db_flight[16:] for db_flight in res]
+    res = [db_flight[:3] + db_flight[5:16] + db_flight[17:] for db_flight in res]
 
     flights = []
 

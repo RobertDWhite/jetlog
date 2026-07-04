@@ -4,11 +4,11 @@ import API from '../api';
 
 interface FrequentFlyerData {
     id: number;
-    flightId: number;
-    programName: string;
-    memberNumber: string | null;
-    milesEarned: number;
-    statusCredits: number;
+    flight_id: number;
+    program_name: string;
+    member_number: string | null;
+    miles_earned: number;
+    status_credits: number;
 }
 
 interface FrequentFlyerSectionProps {
@@ -31,10 +31,10 @@ export default function FrequentFlyerSection({ flightId, canEdit }: FrequentFlye
         .then((result: FrequentFlyerData | null) => {
             if (result && result.id) {
                 setData(result);
-                setProgramName(result.programName);
-                setMemberNumber(result.memberNumber || '');
-                setMilesEarned(result.milesEarned);
-                setStatusCredits(result.statusCredits);
+                setProgramName(result.program_name);
+                setMemberNumber(result.member_number || '');
+                setMilesEarned(result.miles_earned);
+                setStatusCredits(result.status_credits);
             }
             setLoading(false);
         })
@@ -44,10 +44,10 @@ export default function FrequentFlyerSection({ flightId, canEdit }: FrequentFlye
     const handleSave = async () => {
         try {
             const result = await API.post(`/flights/${flightId}/frequent-flyer`, {
-                programName,
-                memberNumber: memberNumber || null,
-                milesEarned,
-                statusCredits,
+                program_name: programName,
+                member_number: memberNumber || null,
+                miles_earned: milesEarned,
+                status_credits: statusCredits,
             });
             setData(result);
             setEditing(false);
@@ -125,10 +125,10 @@ export default function FrequentFlyerSection({ flightId, canEdit }: FrequentFlye
                         <Button text="Cancel" onClick={() => {
                             setEditing(false);
                             if (data) {
-                                setProgramName(data.programName);
-                                setMemberNumber(data.memberNumber || '');
-                                setMilesEarned(data.milesEarned);
-                                setStatusCredits(data.statusCredits);
+                                setProgramName(data.program_name);
+                                setMemberNumber(data.member_number || '');
+                                setMilesEarned(data.miles_earned);
+                                setStatusCredits(data.status_credits);
                             }
                         }} />
                         {data && <Button text="Remove" level="danger" onClick={handleDelete} />}
@@ -136,10 +136,10 @@ export default function FrequentFlyerSection({ flightId, canEdit }: FrequentFlye
                 </div>
             ) : data ? (
                 <div>
-                    <p>Program: <span className="font-semibold">{data.programName}</span></p>
-                    {data.memberNumber && <p>Member #: <span>{data.memberNumber}</span></p>}
-                    <p>Miles Earned: <span>{data.milesEarned.toLocaleString()}</span></p>
-                    {data.statusCredits > 0 && <p>Status Credits: <span>{data.statusCredits.toLocaleString()}</span></p>}
+                    <p>Program: <span className="font-semibold">{data.program_name}</span></p>
+                    {data.member_number && <p>Member #: <span>{data.member_number}</span></p>}
+                    <p>Miles Earned: <span>{data.miles_earned.toLocaleString()}</span></p>
+                    {data.status_credits > 0 && <p>Status Credits: <span>{data.status_credits.toLocaleString()}</span></p>}
                     {canEdit && <Button text="Edit" onClick={() => setEditing(true)} />}
                 </div>
             ) : (

@@ -6,6 +6,7 @@ import AirlineLogo from './AirlineLogo';
 import HeatmapCalendar from './HeatmapCalendar';
 import SeatPreferenceViz from './SeatPreferenceViz';
 import CountryProgress from './CountryProgress';
+import StateProgress from './StateProgress';
 import Achievements from './Achievements';
 import DrillDownChart, { buildGeographicDrillDown } from './DrillDownChart';
 import { Statistics } from '../models';
@@ -703,6 +704,13 @@ export function AllStats({ filters }) {
             <div className="container md:col-span-2 lg:col-span-3">
                 <h3 className="text-lg font-semibold mb-4">Country Progress by Continent</h3>
                 <CountryProgress visitedCountries={Object.keys(statistics.mostCommonCountries)} />
+            </div>
+            )}
+
+            {statistics.usStatesVisited && statistics.usStatesVisited.length > 0 && (
+            <div className="container md:col-span-2 lg:col-span-3">
+                <h3 className="text-lg font-semibold mb-4">US States Visited</h3>
+                <StateProgress visitedStates={statistics.usStatesVisited} />
             </div>
             )}
 

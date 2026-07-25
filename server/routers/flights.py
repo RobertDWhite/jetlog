@@ -531,6 +531,7 @@ async def get_flights(id: int | None = None,
                       end: datetime.date | None = None,
                       origin: str | None = None,
                       destination: str | None = None,
+                      companion: int | None = None,
                       username: str | None = None,
                       user: User = Depends(get_current_user),
                       db: Session = Depends(get_db)) -> list[FlightModel] | FlightModel:
@@ -559,6 +560,7 @@ async def get_flights(id: int | None = None,
         AND   (:end IS NULL OR JULIANDAY(date) <= JULIANDAY(:end))
         AND   (:origin IS NULL OR f.origin = UPPER(:origin))
         AND   (:destination IS NULL OR f.destination = UPPER(:destination))
+        AND   (:companion IS NULL OR f.id IN (SELECT flight_id FROM flight_companions WHERE companion_id = :companion))
         {sort_clause}
         LIMIT :limit
         OFFSET :offset;"""
@@ -570,6 +572,7 @@ async def get_flights(id: int | None = None,
         "end": str(end) if end else None,
         "origin": origin,
         "destination": destination,
+        "companion": companion,
         "limit": limit,
         "offset": offset,
     }

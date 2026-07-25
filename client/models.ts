@@ -108,6 +108,7 @@ export class Statistics {
     avgSpeedKmh: number;
     uniqueTimezones: number;
     continentCompletion: { continent: string; visited: number; total: number }[];
+    usStatesVisited: string[];
     flightsByDay: { date: string; count: number }[];
     avgRating: number;
     ratedFlights: number;

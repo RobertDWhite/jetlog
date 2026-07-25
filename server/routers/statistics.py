@@ -379,6 +379,18 @@ async def get_statistics(metric: bool = True,
         if total > 0:
             continent_completion.append({"continent": name, "visited": visited, "total": total})
 
+    # ---- US states visited (distinct region of US airports flown to/from) ----
+    res_states = db.execute(text(f"""
+        SELECT DISTINCT a.region FROM (
+            SELECT destination AS icao FROM flights f {filters}
+            UNION
+            SELECT origin AS icao FROM flights f {filters}
+        ) visited
+        JOIN airports a ON a.icao = visited.icao
+        WHERE a.country = 'United States' AND a.region IS NOT NULL AND a.region != '';
+    """), filter_params).fetchall()
+    us_states_visited = [r[0] for r in res_states]
+
     # ---- flights by day (calendar heatmap) ----
     res = db.execute(text(f"""
         SELECT f.date, COUNT(*) AS count
@@ -501,6 +513,7 @@ async def get_statistics(metric: bool = True,
                                                          "avg_speed_kmh": avg_speed_kmh,
                                                          "unique_timezones": unique_timezones,
                                                          "continent_completion": continent_completion,
+                                                         "us_states_visited": us_states_visited,
                                                          "flights_by_day": flights_by_day,
                                                          "avg_rating": avg_rating,
                                                          "rated_flights": rated_flights,

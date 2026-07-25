@@ -300,6 +300,7 @@ class StatisticsModel(CustomModel):
     avg_speed_kmh: float | None = 0
     unique_timezones: int | None = 0
     continent_completion: list | None = []
+    us_states_visited: list | None = []
     flights_by_day: list | None = []
     avg_rating: float | None = 0
     rated_flights: int | None = 0

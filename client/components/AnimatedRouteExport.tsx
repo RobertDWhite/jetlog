@@ -297,6 +297,8 @@ export default function AnimatedRouteExport({ isOpen, onClose, startYear, endYea
     const [speed, setSpeed] = useState<SpeedPreset>('normal');
     const [fromYear, setFromYear] = useState<number | undefined>(startYear);
     const [toYear, setToYear] = useState<number | undefined>(endYear);
+    const [companionId, setCompanionId] = useState<number | undefined>(undefined);
+    const [companions, setCompanions] = useState<{ id: number; name: string }[]>([]);
 
     const [flights, setFlights] = useState<AnimFlight[]>([]);
     const [worldGeo, setWorldGeo] = useState<any>(null);
@@ -318,6 +320,11 @@ export default function AnimatedRouteExport({ isOpen, onClose, startYear, endYea
         })),
     ];
 
+    const companionOptions = [
+        { text: 'Everyone', value: '' },
+        ...companions.map((c) => ({ text: c.name, value: String(c.id) })),
+    ];
+
     // Each time the modal opens, sync the span to whatever the page passed in.
     useEffect(() => {
         if (isOpen) {
@@ -325,6 +332,14 @@ export default function AnimatedRouteExport({ isOpen, onClose, startYear, endYea
             setToYear(endYear);
         }
     }, [isOpen, startYear, endYear]);
+
+    // Load the companion list for the "Flew with" filter.
+    useEffect(() => {
+        if (!isOpen) return;
+        API.get('/companions')
+            .then((data: { id: number; name: string }[]) => setCompanions(data || []))
+            .catch(() => {});
+    }, [isOpen]);
 
     // Fetch data
     useEffect(() => {
@@ -339,6 +354,7 @@ export default function AnimatedRouteExport({ isOpen, onClose, startYear, endYea
         const [lo, hi] = orderedSpan(fromYear, toYear);
         if (lo !== undefined) params.start = `${lo}-01-01`;
         if (hi !== undefined) params.end = `${hi}-12-31`;
+        if (companionId !== undefined) params.companion = String(companionId);
 
         Promise.all([
             API.get('/flights', params),
@@ -350,7 +366,7 @@ export default function AnimatedRouteExport({ isOpen, onClose, startYear, endYea
         }).catch(() => {
             setLoading(false);
         });
-    }, [isOpen, fromYear, toYear]);
+    }, [isOpen, fromYear, toYear, companionId]);
 
     // Draw a single static frame (initial state or final state)
     const drawStaticFrame = useCallback((showAll: boolean) => {
@@ -589,6 +605,9 @@ export default function AnimatedRouteExport({ isOpen, onClose, startYear, endYea
 
         const stream = canvas.captureStream(30);
         const mimeTypes = [
+            'video/mp4;codecs=avc1.42E01E',
+            'video/mp4;codecs=h264',
+            'video/mp4',
             'video/webm;codecs=vp9',
             'video/webm;codecs=vp8',
             'video/webm',
@@ -623,7 +642,8 @@ export default function AnimatedRouteExport({ isOpen, onClose, startYear, endYea
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             const yearSuffix = spanFileSuffix(fromYear, toYear);
-            link.download = `jetlog-flights${yearSuffix}.webm`;
+            const ext = selectedMime.startsWith('video/mp4') ? 'mp4' : 'webm';
+            link.download = `jetlog-flights${yearSuffix}.${ext}`;
             link.href = url;
             document.body.appendChild(link);
             link.click();
@@ -746,6 +766,14 @@ export default function AnimatedRouteExport({ isOpen, onClose, startYear, endYea
                                         />
                                     </div>
                                 </div>
+                                <div>
+                                    <label className="block text-sm text-gray-400 mb-1">Flew with</label>
+                                    <Select
+                                        options={companionOptions}
+                                        value={companionId !== undefined ? String(companionId) : ''}
+                                        onChange={(e) => setCompanionId(e.target.value ? parseInt(e.target.value) : undefined)}
+                                    />
+                                </div>
                                 <div className="text-sm text-gray-500 ml-auto">
                                     {flights.length} flight{flights.length !== 1 ? 's' : ''} to animate
                                 </div>
@@ -787,7 +815,7 @@ export default function AnimatedRouteExport({ isOpen, onClose, startYear, endYea
                                 ) : (
                                     <>
                                         <Button text="Preview" onClick={handlePreview} />
-                                        <Button text="Export Video (.webm)" level="primary" onClick={handleExport} />
+                                        <Button text="Export Video" level="primary" onClick={handleExport} />
                                     </>
                                 )}
                             </div>

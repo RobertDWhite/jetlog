@@ -1,5 +1,5 @@
 from server.db.session import init_db
-from server.routers import flights, airports, airlines, statistics, geography, importing, exporting, fr24_sync, health, metrics, tripit, search, analytics, import_formats, boarding_pass, compensation, api_keys, frequent_flyer, custom_fields, companions
+from server.routers import flights, airports, airlines, statistics, geography, importing, exporting, fr24_sync, health, metrics, tripit, search, analytics, import_formats, boarding_pass, compensation, api_keys, frequent_flyer, custom_fields, companions, flight_status
 from server.auth import users, auth
 from server.environment import ENABLE_EXTERNAL_APIS, FR24_EMAIL, FR24_PASSWORD
 from fastapi import FastAPI, Depends, Request
@@ -47,6 +47,7 @@ app.include_router(api_keys.router, prefix="/api", dependencies=auth_dependency)
 app.include_router(frequent_flyer.router, prefix="/api", dependencies=auth_dependency)
 app.include_router(custom_fields.router, prefix="/api", dependencies=auth_dependency)
 app.include_router(companions.router, prefix="/api", dependencies=auth_dependency)
+app.include_router(flight_status.router, prefix="/api", dependencies=auth_dependency)
 
 app.include_router(users.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")

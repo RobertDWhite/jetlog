@@ -139,6 +139,33 @@ class ApiKey(Base):
         return f"<ApiKey(id={self.id}, name='{self.name}', username='{self.username}')>"
 
 
+class FlightStatus(Base):
+    """Scheduled vs. actual times for a flight, looked up from FR24 flight history.
+
+    Kept out of the flights table on purpose: get_flights slices raw rows by column position.
+    """
+    __tablename__ = "flight_status"
+
+    flight_id = Column(Integer, ForeignKey("flights.id", ondelete="CASCADE"), primary_key=True)
+    status = Column(Text, nullable=True)            # FR24 generic status: scheduled/estimated/delayed/departed/landed/canceled/diverted
+    status_text = Column(Text, nullable=True)       # FR24 display text, e.g. "Estimated dep 06:11"
+    live = Column(Integer, default=0)               # airborne right now
+    scheduled_departure = Column(Integer, nullable=True)  # all times are UTC epoch seconds
+    scheduled_arrival = Column(Integer, nullable=True)
+    estimated_departure = Column(Integer, nullable=True)
+    estimated_arrival = Column(Integer, nullable=True)
+    actual_departure = Column(Integer, nullable=True)
+    actual_arrival = Column(Integer, nullable=True)
+    departure_delay = Column(Integer, nullable=True)      # minutes, negative = early
+    arrival_delay = Column(Integer, nullable=True)
+    registration = Column(Text, nullable=True)
+    final = Column(Integer, default=0)              # landed/canceled/diverted: no further lookups
+    updated_at = Column(DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<FlightStatus(flight_id={self.flight_id}, status='{self.status}')>"
+
+
 class FrequentFlyerEntry(Base):
     __tablename__ = "frequent_flyer_entries"
 

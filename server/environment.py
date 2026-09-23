@@ -1,3 +1,4 @@
+import ipaddress
 import os
 import sys
 
@@ -22,6 +23,15 @@ def _get_environment_variable(key: str, cast_int: bool = False, cast_str: bool =
 DATA_PATH = _get_environment_variable("DATA_PATH")
 SECRET_KEY = _get_environment_variable("SECRET_KEY")
 AUTH_HEADER = _get_environment_variable("AUTH_HEADER", required=False)
+# Header auth trusts whoever sets AUTH_HEADER, so only honour it from these proxy addresses
+# (comma-separated IPs/CIDRs). Unset = header auth disabled.
+AUTH_HEADER_TRUSTED_PROXIES = [
+    ipaddress.ip_network(cidr.strip(), strict=False)
+    for cidr in str(_get_environment_variable("AUTH_HEADER_TRUSTED_PROXIES", required=False) or "").split(",")
+    if cidr.strip()
+]
+if AUTH_HEADER and not AUTH_HEADER_TRUSTED_PROXIES:
+    print(f"AUTH_HEADER is set but AUTH_HEADER_TRUSTED_PROXIES is not; ignoring the '{AUTH_HEADER}' header.")
 TOKEN_DURATION = _get_environment_variable("TOKEN_DURATION", cast_int=True)
 ENABLE_EXTERNAL_APIS = str(_get_environment_variable("ENABLE_EXTERNAL_APIS")).lower() == "true"
 FR24_EMAIL = _get_environment_variable("FR24_EMAIL", required=False)

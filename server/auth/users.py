@@ -2,8 +2,9 @@ from server.models import CustomModel, User
 from server.db.session import get_db
 from server.db.models import User as UserModel, Flight
 from server.auth.utils import hash_password, get_user, get_user_from_api_key, oauth2_scheme
-from server.environment import SECRET_KEY, AUTH_HEADER
+from server.environment import SECRET_KEY, AUTH_HEADER, AUTH_HEADER_TRUSTED_PROXIES
 
+import ipaddress
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -22,6 +23,16 @@ class UserPatch(CustomModel):
     public_profile: bool|None = None
 
 ALGORITHM = "HS256"
+
+def _from_trusted_proxy(request: Request) -> bool:
+    """True if the direct peer is one of AUTH_HEADER_TRUSTED_PROXIES (the only ones allowed to set AUTH_HEADER)."""
+    if not request.client:
+        return False
+    try:
+        peer = ipaddress.ip_address(request.client.host)
+    except ValueError:
+        return False
+    return any(peer in network for network in AUTH_HEADER_TRUSTED_PROXIES)
 
 # user auth via header
 async def get_user_from_auth_header(request: Request) -> User:
@@ -85,7 +96,7 @@ async def get_public_profile(username: str):
 @router.get("/me")
 async def get_current_user(request: Request, token: str = Depends(oauth2_scheme),
                            db: Session = Depends(get_db)) -> User:
-    if AUTH_HEADER != None and AUTH_HEADER in request.headers:
+    if AUTH_HEADER != None and AUTH_HEADER in request.headers and _from_trusted_proxy(request):
         return await get_user_from_auth_header(request)
 
     # Try JWT first

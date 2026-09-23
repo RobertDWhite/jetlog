@@ -1,0 +1,118 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Jetlog",
+        "description": "Create an API key in Jetlog (Settings → API keys) and paste it here.",
+        "data": {
+          "url": "URL",
+          "api_key": "API key",
+          "verify_ssl": "Verify SSL certificate"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid API key"
+    },
+    "abort": {
+      "already_configured": "This Jetlog server is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Jetlog options",
+        "data": {
+          "map_extent": "Travel map extent"
+        },
+        "data_description": {
+          "map_extent": "Zoom the map to the airports you have flown, or always show the whole world."
+        }
+      }
+    }
+  },
+  "selector": {
+    "map_extent": {
+      "options": {
+        "auto": "Fit to my flights",
+        "world": "Whole world"
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "in_flight": {
+        "name": "In flight"
+      }
+    },
+    "calendar": {
+      "flights": {
+        "name": "Flights"
+      }
+    },
+    "image": {
+      "travel_map": {
+        "name": "Travel map"
+      }
+    },
+    "sensor": {
+      "next_flight": {
+        "name": "Next flight"
+      },
+      "next_flight_route": {
+        "name": "Next flight route"
+      },
+      "next_flight_status": {
+        "name": "Next flight status"
+      },
+      "next_flight_departure_delay": {
+        "name": "Next flight departure delay"
+      },
+      "next_flight_arrival_delay": {
+        "name": "Next flight arrival delay"
+      },
+      "next_flight_estimated_arrival": {
+        "name": "Next flight arrival"
+      },
+      "upcoming_flights": {
+        "name": "Upcoming flights",
+        "unit_of_measurement": "flights"
+      },
+      "last_flight": {
+        "name": "Last flight"
+      },
+      "total_flights": {
+        "name": "Total flights",
+        "unit_of_measurement": "flights"
+      },
+      "flights_this_year": {
+        "name": "Flights this year",
+        "unit_of_measurement": "flights"
+      },
+      "total_distance": {
+        "name": "Total distance flown"
+      },
+      "total_flight_time": {
+        "name": "Total flight time"
+      },
+      "airports_visited": {
+        "name": "Airports visited",
+        "unit_of_measurement": "airports"
+      },
+      "countries_visited": {
+        "name": "Countries visited",
+        "unit_of_measurement": "countries"
+      },
+      "total_co2": {
+        "name": "Total flight CO₂"
+      },
+      "on_time_percentage": {
+        "name": "On-time arrivals"
+      },
+      "average_arrival_delay": {
+        "name": "Average arrival delay"
+      }
+    }
+  }
+}
